@@ -1,0 +1,595 @@
+<?php
+// $Id$
+
+
+
+/**
+* Display help and module information
+* @param path which path of the site we're displaying help
+* @param arg array that holds the current path as would be returned from arg() function
+* @return help text for the path
+*/
+function assetupload_help($path, $arg) {
+  $output = '';  //declare your output variable
+  switch ($path) {
+    case "admin/help#assetupload":
+      $output = '<p>'.  t("This modules is used to upload the files/assets to the MHEG service or broadcast server.") .'</p>';
+      break;
+  }
+  return $output;
+} // function assetupload_help
+
+
+/**
+* Valid permissions for this module
+* @return array An array of valid permissions for the xmlexport module
+*/
+function assetupload_perm() {
+  return array('access assetupload content', 'administer assetupload', 'create assetupload');
+} // function assetupload_perm()
+
+
+function assetupload_menu() {
+
+  $items = array();
+
+  
+  $items['admin/settings/assetupload'] = array(
+    'title' => 'Asset Upload admin settings-demo',
+    'description' => 'Description of your assetupload admin page',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('assetupload_admin'),
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_NORMAL_ITEM,
+   );
+
+  
+  //----- REPORTS ----
+  
+  
+  // output which files have been uploaded
+  $items['assetupload_report_ch_upload'] = array(
+    'title' => 'Asset Upload Report',
+    'page callback' => 'assetupload_rep_ch_upload',
+    'access arguments' => array('access assetupload content'),
+    'type' => MENU_CALLBACK
+  );
+  
+
+	//----- FORMS ----
+
+ 
+  // select the channel which you want to upload
+  $items['assetupload_form_chn_upload'] = array(
+    'title' => 'Select which channel you want to upload',
+    'page callback' => 'assetupload_frm_chn_upload',
+    'access arguments' => array('access assetupload content'),
+    'type' => MENU_CALLBACK
+  );
+
+  return $items;
+}
+
+
+
+//===================================================================
+//
+//  C A L L B A C K S
+//
+//===================================================================
+
+//********* FORM Callbacks *********
+
+/*
+ * Callback of - form, show xml by Channel ID
+ */
+function assetupload_frm_chn_upload() {
+  return drupal_get_form('assetupload_form_chid_upload');
+}
+
+
+
+//********* REPORT Callbacks *********
+/*
+ * Implementation of assetupload_rep_ch_upload 
+ */ 
+function assetupload_rep_ch_upload()
+{
+	
+	// get the channel id
+	$chid = $_GET['chid'];
+	$ftp_nid = $_GET['ftpnid'];
+		
+	//dvr($chid);
+	//dvr($ftp_nid);
+	
+	//return false;
+	
+	if(!empty($chid))
+	{
+		$page_content = '<br/><br/>';
+		
+		$report = ASSETUPLOAD_upload_channel_assets($chid, $ftp_nid);
+		
+		
+		if (count($report["success"]) > 0)
+		{
+				$page_content .= "The following files were successfully uploaded : <br/><br/>";
+		
+				//dpm($report);
+		
+				
+				$html .= "<table><tbody>";
+		
+				$html .='<tr>
+			            <th valign="top">LocalFilePath</th>
+			            <th valign="top">RemoteFilePath</th>
+			        </tr>';
+				
+				foreach($report["success"] as $nid)
+				{
+					$html .= "<tr>";
+					$html .= '<td valign="top">'.$nid["local-path"].'&nbsp;&nbsp;&nbsp;</td>';
+					$html .= '<td valign="top">'.$nid["remote-path"].'</td>';
+					$html .= "</tr>";
+				}
+				
+				$html .= "</tbody></table>";
+				$html .= "<br/><br/><br/>";
+				
+				$page_content .= $html;
+				
+		}
+		else
+		{
+			if(count($report["fail"]) > 0)
+			{
+					$page_content .= "The following uploads <u>failed!</u> : <br/><br/>";
+		
+					
+					$html .= "<table><tbody>";
+			
+					$html .='<tr>
+				            <th valign="top">LocalFilePath</th>
+				            <th valign="top">RemoteFilePath</th>
+				        </tr>';
+					
+					foreach($report["fail"] as $nid)
+					{
+						$html .= "<tr>";
+						$html .= '<td valign="top">'.$nid["local-path"].'&nbsp;&nbsp;&nbsp;</td>';
+						$html .= '<td valign="top">'.$nid["remote-path"].'</td>';
+						$html .= "</tr>";
+					}
+					
+					$html .= "</tbody></table>";
+					$html .= "<br/><br/><br/>";
+					
+					$page_content .= $html;
+			}
+			else
+			{
+				$page_content .= "<br/>No Files were uploaded!<br/>";
+			}			
+		}			
+	}
+	else
+	{
+		$page_content = "no channelid";	
+	}
+		
+	
+	return $page_content;
+
+}
+
+
+
+
+//===================================================================
+//
+//  C U S T O M   D E F I N E D   F O R M S
+//
+//===================================================================
+// *********************** Channel Upload ************************//
+// Lets the user select a Channel ID and upload all assets linked to
+// that channelID
+// tblmhegassets - this table is populated when the XML for that
+// particular channel has been generated.
+
+/*
+ * Implementation of xmlexport_form_chid_select
+ * Shows a Form where the user select the channel id
+ * from a drop down - to convert to XML.
+ */
+function assetupload_form_chid_upload($form_state) {
+
+  	//$channel_list = drupal_map_assoc(array("NONE"=>0, "Live"=>1, "Stagging"=>2)); 	
+  	$channel_list = _get_channel_list();
+
+	$form['ch_id'] = array(
+	    '#type' => 'select',
+	    '#title' => t('Select a Channel:'),
+	    '#options' => $channel_list,
+	    '#description' => t('Select the Channel you want to Upload'),
+	);
+	
+	
+	// -- have to do an sql query to find the ftp accounts list --- 
+	$query = "SELECT content_type_ftp_accounts.nid, node.title FROM content_type_ftp_accounts
+				LEFT JOIN node
+				ON content_type_ftp_accounts.nid=node.nid
+				ORDER by node.title";
+	
+	$queryresult = db_query($query, $ftp_nodeid);
+	
+	
+	while($record = db_fetch_object($queryresult))
+	{
+		$ftp_location[$record->nid] = $record->title;
+	}	
+	
+	$form['ftp_nid'] = array(
+	    '#type' => 'select',
+	    '#title' => t('FTP Account'),	    
+	    '#options' => $ftp_location,
+	    '#description' => t('Select the FTP Location'),
+	);
+    
+  	$form['submit'] = array('#type' => 'submit', '#value' => t('UPLOAD'));
+  	
+  	return $form;
+}
+
+/*
+ * Implementation of assetupload_form_chid_upload_validate
+ * Checks validity of channel id.
+ */
+function assetupload_form_chid_upload_validate($form, &$form_state) {
+
+	//dvr($form_state['values']);
+	if ($form_state['values']['ch_id'] == 0)
+	{
+		form_set_error('', t('Please choose a correct Channel ID!'));
+	}
+	else
+	{
+		$chid = $form_state['values']['ch_id'];
+		// check if the table has that channelid
+		$query = "SELECT COUNT(*) AS cnt FROM tblmhegassets WHERE channelid=%d";
+		
+		$queryresult = db_query($query, $chid );
+		
+		$record = db_fetch_object($queryresult);
+		
+		if($record->cnt == 0)
+		{
+			form_set_error('', t("There is no reference to $chid in the tblmhegassets table. 
+								Please try again. Or populate the table for this channelid
+								by running the Asset Management Tool for this channel"));
+		}
+		
+	}
+}
+
+/*
+ * Implementation of assetupload_form_chid_upload_submit
+ * Submits the form to xmlexport_all to do the text processing.
+ */
+function assetupload_form_chid_upload_submit($form, &$form_state) {
+  
+  $query_string = 'chid='.$form_state['values']['ch_id'].'&ftpnid='.$form_state['values']['ftp_nid'];
+	
+  drupal_goto($path = 'assetupload_report_ch_upload', $query = $query_string  , $fragment = NULL, $http_response_code = 302);
+
+}
+
+
+
+
+//===================================================================
+//
+//  H E L P E R		F U N C T I O N S
+//
+//===================================================================
+
+/*
+ * Implementation of upload_channel_assets
+ * this function is used to ftp the files over to the correct ftp server.
+ */
+function ASSETUPLOAD_upload_channel_assets($chid, $ftp_nodeid)
+{
+	// --- FTP access parameters --
+	
+	/******* FOR TESTING ****/
+	/*
+	$host = '192.168.44.1';
+	$usr = 'drupal';
+	$pwd = 'drupal123';
+	*/ 
+
+	//return false;
+	
+	$ftp_account_details = _get_ftp_account_info($ftp_nodeid);
+
+	if($ftp_account_details != NULL)
+	{
+			
+		/***** real params - connection info *****/
+		$host = $ftp_account_details['server_address'];
+		$usr = $ftp_account_details['username'];
+		$pwd = $ftp_account_details['password'];
+		/***********************/ 
+		
+		//-- connect to FTP server (port 21) --
+		$conn_id = ftp_connect($host, 21) or die ("Cannot connect to host");
+		
+	
+		//$filename = "promo3.png";
+		
+		// file to move:
+		//$local_file = "./sites/default/files/$filename";
+		
+		 
+		//echo ("here1");
+		
+		// send access parameters
+		ftp_login($conn_id, $usr, $pwd) or die("Cannot login");
+		 
+		//echo ("here2");
+		
+		
+		$upload_report["success"] = array();
+		$upload_report["fail"] = array();
+		//$upload_report["fail"]["local-path"] = array();
+		//$upload_report["fail"]["remote-path"] = array();
+		
+		
+		$i_success = 0;
+		$i_fail = 0;
+		
+		$query = "SELECT orig_path, promo_slot FROM tblmhegassets WHERE channelid = %d;";
+		$queryresult = db_query($query, $chid) or die("Cannot get filename,path from tblmhegassets");
+		
+		//dpm($queryresult);
+		
+		//die("stop");
+		
+		// get file list and loop through while uploading one by one.
+		while($record = db_fetch_object($queryresult))
+		{
+			/********* for testing ************/
+			//$remotefilepath = "/d_img/$record->filename";
+			$localfilepath = "./$record->orig_path";
+			/**********************************/
+			
+			/********* real params - locations *********/
+			$remotefilepath = $ftp_account_details['asset_path']."/promo".$record->promo_slot.".png";
+			/*******************************************/
+
+			
+	   //=========== First we upload all the external files such as images ===========
+			if(_upload_file($conn_id, $localfilepath, $remotefilepath))
+			{
+				// do the following for reporting purposes - populates the return value
+				$upload_report["success"][$i_success]["local-path"] = "$localfilepath";
+				$upload_report["success"][$i_success]["remote-path"] = $usr.'@'.$host.$remotefilepath;
+				$i_success++;
+			}
+			else
+			{
+				// do the following for reporting purposes - populates the return value
+				$upload_report["fail"][$i_fail]["local-path"] 	= "$localfilepath";
+				$upload_report["fail"][$i_fail]["remote-path"] 	= $usr.'@'.$host.$remotefilepath;
+				$i_fail++;			
+			}
+			
+		}
+		
+		//============== now we upload the content data xml files ============
+		// at the moment there's only 2 xml files all the xml data are in them.
+		// Note: this may change soon, and these two big files may be split into many smaller ones
+		
+		//--- the article-data file ---
+		
+		/************ for testing ********/
+		//$remotefilepath = "/data/data.xml";
+		$localfilepath = "data.xml";
+		/*********************************/
+		
+		/*********** real params - locations *********/
+		$remotefilepath = $ftp_account_details['data_path']."/data.xml";
+		/*********************************************/
+		
+		
+		
+		if(_upload_file($conn_id, $localfilepath, $remotefilepath))
+		{
+				// do the following for reporting purposes - populates the return value
+				$upload_report["success"][$i_success]["local-path"] = "$localfilepath";
+				$upload_report["success"][$i_success]["remote-path"] = $usr.'@'.$host.$remotefilepath;
+				$i_success++;
+		}
+		else
+		{
+				// do the following for reporting purposes - populates the return value
+				$upload_report["fail"][$i_fail]["local-path"] 	= "$localfilepath";
+				$upload_report["fail"][$i_fail]["remote-path"] 	= $usr.'@'.$host.$remotefilepath;
+				$i_fail++;
+		}
+		
+		
+		
+		
+		//--- the index-data file. ---
+		
+		/************* for testing ***********/
+		//$remotefilepath = "/index.xml";
+		$localfilepath = "index.xml";
+		/*************************************/
+		
+		/************* real params ************/
+		$remotefilepath = $ftp_account_details['index_path']."index.xml";
+			 
+		
+		if(_upload_file($conn_id, $localfilepath, $remotefilepath))
+		{
+				// do the following for reporting purposes - populates the return value
+				$upload_report["success"][$i_success]["local-path"] = "$localfilepath";
+				$upload_report["success"][$i_success]["remote-path"] = $usr.'@'.$host.$remotefilepath;
+				$i_success++;
+		}
+		else
+		{
+				// do the following for reporting purposes - populates the return value
+				$upload_report["fail"][$i_fail]["local-path"] 	= "$localfilepath";
+				$upload_report["fail"][$i_fail]["remote-path"] 	= $usr.'@'.$host.$remotefilepath;
+				$i_fail++;
+		}
+		
+			
+		// -- close the FTP stream --
+		ftp_close($conn_id);
+	
+		return $upload_report;
+	
+	}
+	else
+	{
+		die("invalid ftp-id = $ftp_nodeid");		
+	}	
+}
+
+
+
+
+
+
+//===================================================================
+//
+//  S U B		H E L P E R		F U N C T I O N S
+//
+//===================================================================
+
+/*
+ * Implementation of _get_filelist
+ */
+function _get_filelist($chid)
+{
+	$query = "SELECT filename, path FROM {tblmhegassets} WHERE channelid=%d";
+	$queryresult = db_query($query, $chid) or die("Cannot get filename,path from tblmhegassets");
+	
+	/*
+	$filelist = array();
+	while($object = db_fetch_object($queryresult))
+	{
+		array_push($filelist, $object->path);
+	}
+	*/
+	
+	return  $queryresult;
+}
+
+
+
+
+/*
+ * Implementation of  _get_file_info
+ * @return - an object containing all the file info. name, path, size etc
+ * 
+ */
+
+function _get_file_info($fid)
+{
+	$query = "SELECT filename,filepath,filemime,filesize FROM {files} WHERE fid=%d";
+	$queryresult = db_query($query, $fid);
+	$record = db_fetch_object($queryresult);
+	
+	return $record;
+}
+
+/*
+ * Implementation of _get_ftp_account_info
+ * in this instance - $ftp_nodeid = $nodeid.
+ * @return - an array containing the information such as username, pass, ftp ip, etc.
+ */
+
+function _get_ftp_account_info($ftp_nodeid)
+{
+	
+	// nid, field_ftp_server_address_value, field_ftp_username_value, field_ftp_password_value, field_remote_asset_path_value, field_remote_data_path_value, field_remote_index_path_value
+
+	if(_get_node_type($ftp_nodeid) == "ftp_accounts")
+	{	
+		$query = "SELECT * FROM content_type_ftp_accounts WHERE nid = %d";
+		$queryresult = db_query($query, $ftp_nodeid);
+		$record = db_fetch_object($queryresult);
+		
+		$ftp_info = array();
+		
+		$ftp_info['server_address'] =  $record->field_ftp_server_address_value;
+		$ftp_info['username'] =  $record->field_ftp_username_value;
+		$ftp_info['password'] = $record->field_ftp_password_value;
+		$ftp_info['asset_path'] = $record->field_remote_asset_path_value;
+		$ftp_info['data_path'] = $record->field_remote_data_path_value;
+		$ftp_info['index_path'] = $record->field_remote_index_path_value;
+		
+		return $ftp_info;	
+	
+	}
+	else
+	{	//not an ftp account content type
+		return NULL;
+	}
+}
+
+
+
+/*
+ * 
+ */
+function _upload_file($cnx_id, $localfilepath, $remotefilepath)
+{
+	// perform file upload
+	$upload = ftp_put($cnx_id, $remotefilepath, $localfilepath, FTP_BINARY);
+	 
+	// check upload status:
+	//print (!$upload) ? 'Cannot upload' : 'Upload complete';
+	//print "\n";
+	 
+	/*
+	** Chmod the file (just as example)
+	*/
+	 
+	// If you are using PHP4 then you need to use this code:
+	// (because the "ftp_chmod" command is just available in PHP5+)
+	/*
+	if (!function_exists('ftp_chmod')) {
+	   function ftp_chmod($ftp_stream, $mode, $filename){
+	   		print "ftp_cmod doesnt exist";
+	        return ftp_site($ftp_stream, sprintf('CHMOD %o %s', $mode, $filename));
+	   }
+	}
+	 
+	// try to chmod the new file to 666 (writeable)
+	if (ftp_chmod($conn_id, 0666, $ftp_path) !== false) {
+	    print $ftp_path . " chmoded successfully to 666\n";
+	} else {
+	    print "could not chmod $file\n";
+	}
+	 
+	*/
+	
+	// turn on passive mode transfers (some servers need this)
+	// ftp_pasv ($conn_id, true);
+	 
+	
+	if($upload){return true;}		
+	else 
+	{
+		//die ("couldnt upload $localfilepath to --> $remotefilepath");
+		return false;
+	}		 
+
+}
+ 

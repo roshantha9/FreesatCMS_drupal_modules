@@ -1,0 +1,73 @@
+<?php
+// $Id$
+
+
+
+/**
+* Display help and module information
+* @param path which path of the site we're displaying help
+* @param arg array that holds the current path as would be returned from arg() function
+* @return help text for the path
+*/
+function formchanges_help($path, $arg) {
+  $output = '';  //declare your output variable
+  switch ($path) {
+    case "admin/help#formchanges":
+      $output = '<p>'.  t("Custom changes to forms available in Drupal") .'</p>';
+      break;
+  }
+  return $output;
+} // function formchanges_help
+
+
+
+
+/**
+* Valid permissions for this module
+* @return array An array of valid permissions for the formchanges module
+*/
+function formchanges_perm() {
+  return array('access xmlexport content', 'administer formchanges', 'create formchanges');
+} // function formchanges_perm()
+
+
+function formchanges_form_alter(&$form, $form_state, $form_id) {
+    
+  drupal_add_js(drupal_get_path('module', 'formchanges') .'/formchanges.js');
+
+    if ($form_id == 'index_multiple_node_form') {
+    // Do something.
+      //formchanges_user_edit(&$form);
+     //print_r(&$form);
+     
+      //print_r($form);
+
+      //$form['field_index_mult_ff'][0]['#default_value']['value']['field_index_item'][0]['value'] = "Hello World";
+
+      //$form['field_index_mult_ff'][0]['#default_value']['value']['field_index_linknode']['0']['type'] = 'select';
+
+      //$form['field_index_mult_ff'][0]['#default_value']['value']['field_index_linknode']['#attributes'] = array('onChange'=>'formchanges_hello(this.value)');
+
+
+
+       //dsm($form['field_index_mult_ff'][0]['#default_value']['value']['field_index_linknode']);
+       //dsm($form['field_index_linknode']);
+
+  }
+}
+/*
+function formchanges_preprocess_content_field(&$vars) {
+
+
+    print $vars['field']['field_name'];
+
+    if ($vars['field']['field_name'] == "field-field-index-mult-ff") {
+    $vars['label'] = "Test Price";
+    print "HEllo";
+  }
+  else
+     {
+      dsm($vars);
+     }
+}
+*/

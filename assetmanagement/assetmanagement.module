@@ -1,0 +1,1486 @@
+<?php
+// $Id$
+
+
+
+/**
+* Display help and module information
+* @param path which path of the site we're displaying help
+* @param arg array that holds the current path as would be returned from arg() function
+* @return help text for the path
+*/
+function assetmanagement_help($path, $arg) {
+  $output = '';  //declare your output variable
+  switch ($path) {
+    case "admin/help#assetmanagement":
+      $output = '<p>'.  t("Handles\allocates the images in the drupal mheg cms") .'</p>';
+      break;
+  }
+  return $output;
+} // function assetmanagement_help
+
+
+/**
+* Valid permissions for this module
+* @return array An array of valid permissions for the xmlexport module
+*/
+function assetmanagement_perm() {
+  return array('access assetmanagement content', 'administer assetmanagement', 'create assetmanagement');
+} // function assetmanagement_perm()
+
+/*
+function assetmanagement_admin() {
+  $form = array();
+
+  $form['assetmanagement_maxdisp'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Maximum number of links'),
+    '#default_value' => variable_get('assetmanagement_maxdisp', 3),
+    '#size' => 2,
+    '#maxlength' => 2,
+    '#description' => t("The maximum number of links to display in the block."),
+    '#required' => TRUE,
+  );
+
+  return system_settings_form($form);
+}
+*/
+
+function assetmanagement_menu() {
+
+  $items = array();
+
+  
+  $items['admin/settings/assetmanagement'] = array(
+    'title' => 'Asset Management Admin',
+    'description' => 'Description of your On this date settings page',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('assetmanagement_admin'),
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_NORMAL_ITEM,
+   );
+
+   //========== forms =======//
+  // select the channel which you want to organise the assets.
+  $items['assetmanagement_form_asset_handle'] = array(
+    'title' => 'Choose a channel to organise the assets',
+    'page callback' => 'assetmanagement_frm_asset_handle',
+    'access arguments' => array('access assetmanagement content'),
+    'type' => MENU_CALLBACK
+  );
+  
+  
+  // select the channel which you want to allocate the assets to promo slots
+  $items['assetmanagement_form_asset_alloc'] = array(
+    'title' => 'Asset Allocation',
+    'page callback' => 'assetmanagement_frm_asset_alloc',
+    'access arguments' => array('access assetmanagement content'),
+    'type' => MENU_CALLBACK
+  );
+  
+    
+  // select the channel which you want to allocate the assets to promo slots
+  $items['assetmanagement_form_asset_nid_link'] = array(
+    'title' => 'Content Node-Images Relationship',
+    'page callback' => 'assetmanagement_frm_asset_nid_link',
+    'access arguments' => array('access assetmanagement content'),
+    'type' => MENU_CALLBACK
+  );
+  
+  
+  // select the channel which you want to allocate the assets to promo slots
+  $items['assetmanagement_form_asset_nid_link'] = array(
+    'title' => 'Content Node-Images Relationship',
+    'page callback' => 'assetmanagement_frm_asset_nid_link',
+    'access arguments' => array('access assetmanagement content'),
+    'type' => MENU_CALLBACK
+  );
+  
+  
+  // Seperate Form Page - Refresh AssetManagement Table  
+  $items['assetmanagement_form_asset_management_refresh'] = array(
+    'title' => 'Rebuild Asset Management Table',
+    'page callback' => 'assetmanagement_frm_asset_management_refresh',
+    'access arguments' => array('access assetmanagement content'),
+    'type' => MENU_CALLBACK
+  );
+  
+  // Seperate Form Page - Check Channel Assets  
+  $items['assetmanagement_form_channel_check_assets'] = array(
+    'title' => 'Check Channel Assets',
+    'page callback' => 'assetmanagement_frm_channel_check_assets',
+    'access arguments' => array('access assetmanagement content'),
+    'type' => MENU_CALLBACK
+  );
+  
+  
+  
+  
+
+  // ======== reports ========//
+
+  // populates the tblmhegassets
+  $items['assetmanagement_report_ch_handle'] = array(
+    'title' => 'Asset Management Report',
+    'page callback' => 'assetmanagement_rep_ch_handle',
+    'access arguments' => array('access assetmanagement content'),
+    'type' => MENU_CALLBACK
+  );
+  
+  // modifies and outputs a summary of tblmhegassets
+  $items['assetmanagement_report_ch_alloc'] = array(
+    'title' => 'Asset Allocation Report',
+    'page callback' => 'assetmanagement_rep_ch_alloc',
+    'access arguments' => array('access assetmanagement content'),
+    'type' => MENU_CALLBACK
+  );
+  
+ 
+  return $items;
+}
+
+
+
+
+//===================================================================
+//
+//  C A L L B A C K S
+//
+//===================================================================
+
+//********* FORM Callbacks *********
+//**********************************
+
+/*
+ * Callback of - form, Organise Assets by Channel.
+ * lets you organise or flush asset management table.
+ */
+function assetmanagement_frm_asset_handle() {
+  return drupal_get_form('assetmanagement_form_chid_handle');
+}
+
+
+function assetmanagement_frm_asset_alloc() {
+  return drupal_get_form('assetmanagement_form_chid_alloc');
+}
+
+function assetmanagement_frm_asset_nid_link(){
+	 return drupal_get_form('assetmanagement_form_chid_asset_nid_link');
+}
+
+
+
+
+function assetmanagement_frm_asset_management_refresh(){
+	 return drupal_get_form('assetmanagement_form_ass_man_refresh');
+}
+
+
+function assetmanagement_frm_channel_check_assets(){
+	return drupal_get_form('assetmanagement_form_ch_chk_ass');
+}
+
+
+
+
+//********* REPORT Callbacks *********
+//************************************
+
+/*
+ * Implementation of assetmanagement_rep_ch_handle
+ * The channel map table has to be built before this.
+ * this will cycle through the nodes in the channelmap table
+ * and organise the tblmhegassets
+ */
+
+function assetmanagement_rep_ch_handle()
+{
+	global $tblmhegassets_msg_log;
+	$tblmhegassets_msg_log = array();
+	
+	// get the channel id
+	$chid = $_GET['chid'];
+	$action = $_GET['action'];
+	
+	
+	// get list of fid's from tblchannelmap
+	
+	$query = "SELECT nodeid FROM {tblchannelmap} WHERE channelid=%d";
+	$queryresult = db_query($query, $chid);
+	
+	//$slot = 1;
+	
+	switch($action)
+	{
+		case 'add':
+		{
+			while ($record = db_fetch_object($queryresult))
+			{
+				$imgref_nid_list = _get_imgrefnid($record->nodeid, 1);
+				
+				
+				/*
+				 * IMPORTANT :
+				 * When we are adding assets to the table the promo slot allocation is important.
+				 * By default : (-1) = get the system to calculate the next available slot.
+				 * Later on the user has the option to change the slotting.
+				 */
+				
+				foreach($imgref_nid_list as $imgref_nid)
+				{
+					ASSETMANAGE_table_handler($imgref_nid,$chid,$action, -1);		
+				}
+				
+				/*
+				if($slot > 4)	{ $slot = 0; }
+				else			{ $slot++;}
+				*/				
+			}		
+		}			
+		break;
+		
+		case 'delete':	
+			//ASSETMANAGE_table_handler($imgref_nid,$chid,$action);
+			array_push($tblmhegassets_msg_log, "<br/><span style=\"color:red\"><b>ERROR::</b> Action not supported yet !!</span>");
+			break;	
+		case 'flush':
+		{
+			ASSETMANAGE_table_handler(999,$chid,$action, 0);
+		}break;
+		
+		case 'refresh':
+		{
+			// first we flush :
+			ASSETMANAGE_table_handler(999,$chid,'flush', 0);
+			
+			// then we add again according the the channelmap
+			while ($record = db_fetch_object($queryresult))
+			{
+				$imgref_nid_list = _get_imgrefnid($record->nodeid, 1); // 1 = promo1 image (incase an article has more than 1 pimage later)
+				
+				/*
+				 * IMPORTANT :
+				 * When we are adding assets to the table the promo slot allocation is important.
+				 * By default : (-1) = get the system to calculate the next available slot.
+				 * Later on the user has the option to change the slotting.
+				 */				
+				foreach($imgref_nid_list as $imgref_nid)
+				{
+					ASSETMANAGE_table_handler($imgref_nid,$chid,'add', -1);
+					
+				}
+				
+				/*
+				if($slot > 4)	{ $slot = 0; }
+				else			{ $slot++;}
+				*/				
+			}				
+			
+			
+			//array_push($tblmhegassets_msg_log, "<br/>ERROR :: Action not supported yet !!<br/>");
+			
+		}break;		
+		default:
+		{
+			array_push($tblmhegassets_msg_log, "<br/><span style=\"color:red\"><b>ERROR::</b> UNKNOWN action = $action</span><br/>");
+		}break;
+	}
+	
+	$page_content = "";
+	
+	foreach($tblmhegassets_msg_log as $msg)
+	{
+		$page_content .= "$msg";
+	
+	}	
+	
+	$page_content .= _html_summary_mhegassets($chid);	
+	
+	$links = l("Go Back to Asset Management Tool", "assetmanagement_form_asset_handle");	
+	$page_content .= $links;
+	
+	
+	return $page_content;	
+}
+
+/*
+ * Implementation of assetmanagement_rep_ch_alloc
+ */
+
+function assetmanagement_rep_ch_alloc()
+{
+	
+	// get the query string components
+	$chid = $_GET['chid'];
+	$querystring = $_GET['promo_slots'];
+	
+	//dvr($promo_slots);
+	
+	$pslot_pairs_arr = explode(',',$querystring);
+	
+	foreach($pslot_pairs_arr as $pair)
+	{
+		$imgrefnid_slot_pair = explode('-',$pair);
+		
+		$imgref_nid = $imgrefnid_slot_pair[0];
+		$slot_val = $imgrefnid_slot_pair[1];
+		
+		// if both are true do the update;
+		
+		if(!empty($imgref_nid) && !empty($slot_val))
+		{
+			$query = "UPDATE tblmhegassets SET promo_slot = %d WHERE imgref_nid = %d AND channelid = %d;";							
+			$queryresult = db_query($query, $slot_val, $imgref_nid, $chid ) OR DIE("unable to insert record to tblmhegassets\n [$query]\n");	
+		
+		}	
+	}
+	
+	//dvr($pslot_pairs_arr);
+	
+	$page_content = "Changes Applied!";	
+	$page_content .= _html_summary_mhegassets($chid);
+	
+	$querystring = "&chid=$chid";
+	
+	$links = l("Go Back to Allocation Page", "assetmanagement_form_asset_alloc", array('query'=>$querystring) );
+	$links .= "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;";
+	$links .= l("Go Back to Asset Management Tool", "assetmanagement_form_asset_handle");
+	
+	$page_content .= $links;
+	
+	return $page_content;
+
+}
+
+
+
+
+
+
+
+
+
+
+
+//===================================================================
+//
+//  C U S T O M   D E F I N E D   F O R M S
+//
+//===================================================================
+
+//====	FORM : assetmanagement_form_asset_handle ======//
+
+// ---- FORM : Asset Handle -----//
+function assetmanagement_form_chid_handle($form_state) {
+
+	//$channel_list = drupal_map_assoc(array("Live"=>1, "Stagging"=>2));
+	 	
+	$channel_list = _get_channel_list();
+
+	$form['ch_id'] = array(
+	    '#type' => 'select',
+	    '#title' => t('Select a Channel:'),	    
+	    '#options' => $channel_list,
+	    '#description' => t('Select the Channel you Manage'),
+	);	
+	
+	//-- actions the user is allowd to perform : in order of usage --
+	// refresh - flushes the whole table and repopulates it.
+	// allocate - takes the user to the promo slot allocate form.
+	// flush - flushes the whole table for that particular channelid.
+	// add - does the add routine, this doesn't do a flush.
+	$actions = array( 
+	"refresh"=>"refresh",
+	"allocate"=>"allocate",
+	//"flush"=>"flush", 
+	//"add"=>"add" 	
+	 );
+
+	
+	$form['action'] = array(
+	    '#type' => 'select',
+	    '#title' => t('Action'),
+	    '#default_value' => "-NONE-",
+	    '#options' => $actions,
+	    '#description' => t('Select the Action you want to perform'),
+	);
+    
+  	$form['submit'] = array('#type' => 'submit', '#value' => t('Submit'));
+  	
+  	return $form;
+}
+
+
+/*
+ * Implementation of assetmanagement_form_chid_handle_validate
+ * Checks validity of channel id and action
+ */
+function assetmanagement_form_chid_handle_validate($form, &$form_state) {
+
+	//dvr($form_state['values']);
+	if ($form_state['values']['ch_id'] == 0)
+	{
+		form_set_error('', t('Please choose a correct Channel ID!'));
+	}
+	else
+	{
+		
+		$chid = $form_state['values']['ch_id'];
+		
+		// check if the tables have that channelid
+		$query = "SELECT COUNT(*) AS cnt_tblmhegassets FROM {tblmhegassets} WHERE channelid=%d";		
+		$queryresult = db_query($query, $chid );		
+		$record = db_fetch_object($queryresult);
+		$cnt_tblmhegassets = $record->cnt_tblmhegassets;
+		
+		//---
+		$query = "SELECT COUNT(*) AS cnt_tblchannelmap FROM {tblchannelmap} WHERE channelid=%d";		
+		$queryresult = db_query($query, $chid );		
+		$record = db_fetch_object($queryresult);		
+		$cnt_tblchannelmap = $record->cnt_tblchannelmap;
+
+			switch ($form_state['values']['action'])
+			{
+				case "allocate":
+				case "flush":
+					if($cnt_tblmhegassets < 1)
+					{
+							form_set_error('', t("There is no reference to channel=$chid in the tblmhegassets table. 
+								Please try again. Or populate the table for this channelid
+								by choosing the 'Refresh' or 'Add' option."));
+					}
+					break;
+				case "refresh":
+				case "add":					
+					if($cnt_tblchannelmap < 1)
+					{
+							form_set_error('', t("There is no reference to channel=$chid in the tblchannelmap table. 
+								Please try again. Or populate the table for this channelid
+								by choosing the 'Link Node to Channel' option."));
+					}					
+					break;
+				default:
+					form_set_error('', t("invalid action performed, please try again"));
+					break;
+			
+			}
+	}
+}
+
+/*
+ * Implementation of assetmanagement_form_chid_handle_submit
+ * Submits the form to assetmanagement_report_ch_handle to do the processing.
+ */
+function assetmanagement_form_chid_handle_submit($form, &$form_state) {
+  
+  $query_string = 'chid='.$form_state['values']['ch_id'].'&action='.$form_state['values']['action'];
+  
+  if($form_state['values']['action'] == "allocate") // if its an allocate action then go to the asset allocate form page.
+  {
+  	drupal_goto($path = 'assetmanagement_form_asset_alloc', $query = $query_string  , $fragment = NULL, $http_response_code = 302);  	
+  }
+  else // any other action go to the asset handling page.
+  {
+  	drupal_goto($path = 'assetmanagement_report_ch_handle', $query = $query_string  , $fragment = NULL, $http_response_code = 302);  	
+  }
+  
+}
+
+//-------------------------------------------------------------------------------
+
+//==== FORM :  assetmanagement_form_asset_alloc ========//
+
+// ---- FORM : Asset Promo slot alloc -----//
+function assetmanagement_form_chid_alloc($form_state)
+{	
+	// get the channel id
+	$chid = $_GET['chid'];
+	
+	$promos = array (
+	0=>"-NONE-",	
+	1=>"promo1", 
+	2=>"promo2",
+	3=>"promo3",
+	4=>"promo4",
+	5=>"promo5",	
+	);
+	
+	//-- dummy vars for testing --
+	$fid_num = 1;
+	$fid_total_nums = 5;
+	//----------------------------
+	
+	// -- we use this counter to store all the imgref_nids in a hidden field, then
+	// we can use this for validation. comma seperated.	
+	$imgref_nid_list = array();
+	
+	
+	$form["ch_id"] = array(
+		    '#type' => 'hidden',	   
+		    '#value' => $chid,
+		);	
+	
+	
+	// initial table markup
+	$form["table_start"] = array(
+		    '#type' => 'markup',	   
+		    '#value' => "<table border =\"1\">
+		    			<tr>
+		    				<td><b>Image Ref.</b></td>
+		    				<td><b>Image Thumbnail</b></td>
+		    				<td><b>Promo Slot</b></td>
+		    			</tr>",
+		);
+	
+	
+	// -- get imgref_nid, thumb_path and promo_slot from {tblmhegassets} --
+	$query = "SELECT imgref_nid, thumb_path, promo_slot FROM tblmhegassets WHERE channelid = %d ORDER BY promo_slot";			
+	$queryresult = db_query($query, $chid ) OR die("Unable to get imgref_nid for channelid=$chid");	
+	
+	while($record = db_fetch_object($queryresult))
+	{
+		
+		$imgref_nid = $record->imgref_nid;
+		$thumb_path = $record->thumb_path;
+		$curr_promo_slot = $record->promo_slot;
+		
+		//dvr($curr_promo_slot);
+		//dvr($promos[$curr_promo_slot]);
+		
+		$form["table_start$imgref_nid"] = array(
+		    '#type' => 'markup',	   
+		    '#value' => "<tr>",
+		);
+		
+		$form["imgref_$imgref_nid"] = array(
+	    '#type' => 'markup',
+	    '#value' => $imgref_nid,	
+		'#prefix' => "<td>",
+		'#suffix' => "</td>",		    
+		); 
+	
+	
+		$form["image_$imgref_nid"] = array(
+		    '#type' => 'markup',	   
+		    '#value' => "<img src=\"$thumb_path\" />",
+			'#prefix' => "<td>",
+			'#suffix' => "</td>",
+		);
+			
+		
+		$form["promo_select_$imgref_nid"] = array(
+		    '#type' => 'select',
+		    '#title' => t('Select Promo'),
+		    '#default_value' => $curr_promo_slot,
+		    '#options' => $promos,
+		    '#description' => t('Select the promo slot'),
+			'#prefix' => "<td>",
+			'#suffix' => "</td>",
+		);
+		
+		
+		$form["table_end$imgref_nid"] = array(
+		    '#type' => 'markup',	   
+		    '#value' => "</tr>",
+		);
+		
+		// populate array.
+		array_push($imgref_nid_list, $imgref_nid);		
+	}
+	
+	
+	$form["table_end"] = array(
+		    '#type' => 'markup',	   
+		    '#value' => "</table>",
+		);
+
+	$imgref_nid__list_string = implode($imgref_nid_list, ',');
+	$form["imgref_nids_hidden"] = array(
+		    '#type' => 'hidden',	   
+		    '#value' => $imgref_nid__list_string,
+		);	
+		
+	$form['submit'] = array(
+	'#type' => 'submit', 
+	'#value' => t('Submit Changes!'),
+	'#suffix' => '<br/><br/>'.l("Go Back", "assetmanagement_form_asset_handle"),
+	
+	);
+	
+	
+	
+	return $form;
+}
+
+/* Implementation of assetmanagement_form_chid_alloc_validate
+ * Checks validity of channel id and promo slot
+ */
+function assetmanagement_form_chid_alloc_validate($form, &$form_state) {
+	
+	// get list of imgref_nids.
+	$imgref_nids_list = explode(',',$form_state['values']['imgref_nids_hidden']);
+		
+	// now we have to check, if each select list promo is valid
+	// conditions : can't be = "None", two non-none promos can't be equal.
+	
+	if(count($imgref_nids_list) > 5)
+	{
+		form_set_error('', t("Too many Images in the Channel, please go back to content and adjust."));					
+	}
+	else
+	{
+		$pselect_values = array();
+		
+		// get select list values
+		foreach($imgref_nids_list as $sel_prefix)
+		{
+			if($form_state['values']["promo_select_$sel_prefix"] == 0)
+			{
+				form_set_error('', t("Promo Images cannot be -NONE-, please assign image - $sel_prefix a promo slot."));				
+			}
+			else
+			{
+				array_push($pselect_values, $form_state['values']["promo_select_$sel_prefix"]);	
+			}				
+		}		
+		
+		//check if it had duplicates
+		if (count(array_unique($pselect_values)) < count($pselect_values))
+		{
+			form_set_error('', t("Two or more of the selected Promo Slots are the same. 
+								  Please check and try again, or adjust the relevant node to fix issue."));
+		} 		
+	}	
+}
+
+/*
+ * Implementation of assetmanagement_form_chid_alloc_submit
+ * Submits the form to assetmanagement_report_ch_alloc to do the processing.
+ */
+function assetmanagement_form_chid_alloc_submit($form, &$form_state) {
+  
+  	$chid = $form_state['values']['ch_id'];
+ 	// we build [imgref_nid.promo_slot] pairs
+ 	// format : 42-1,41-3...
+
+ 	// we have to do a query on tblmhegassets to get the imgref_nids
+ 	$query = "SELECT imgref_nid FROM tblmhegassets WHERE channelid = %d";			
+	$queryresult = db_query($query, $chid ) OR die("Unable to get imgref_nid for channelid=$chid");			
+	
+	
+	//build query string
+	$query_string = "promo_slots=";
+	while($record = db_fetch_object($queryresult))
+	{
+		$imgref_nid = $record->imgref_nid;
+		$query_string .= $imgref_nid."-".$form_state['values']["promo_select_$imgref_nid"].",";		
+	}
+	
+	$query_string .= "&action=update";
+	
+	$query_string .= '&chid='.$form_state['values']['ch_id'];
+	
+	//dvr($query_string);
+	
+  	//$query_string = 'chid='.$form_state['values']['ch_id'].'&action='.$form_state['values']['action'];
+	
+ 	drupal_goto($path = 'assetmanagement_report_ch_alloc', $query = $query_string  , $fragment = NULL, $http_response_code = 302);
+
+}
+
+
+
+
+//==== FORM :  assetmanagement_form_asset_nid_link ========//
+
+
+
+function assetmanagement_form_chid_asset_nid_link()
+{
+
+	// get the channel id
+	$chid = $_GET['chid'];
+
+	
+	if(empty($chid))
+	{
+		$form["msg1"] = array(
+					    '#type' => 'markup',	   
+					    '#value' => "<br/><i>Choose a Channel ID, to view it's assets-node relationship table.</i><br/>",
+				);
+	
+	}
+	else
+	if(_count_tblchannelmap($chid) > 0)
+	{
+		//-- dummy vars for testing --
+		
+		//----------------------------
+		
+		// -- we use this counter to store all the imgref_nids in a hidden field, then
+		// we can use this for validation. comma seperated.	
+		$imgref_nid_list = array();
+		
+		
+		$form["ch_id"] = array(
+			    '#type' => 'hidden',	   
+			    '#value' => $chid,
+			);	
+			
+		$nid_list = _get_asset_nid_relationship($chid);
+		
+		//dvr($nid_list['nid_list']);
+		
+		
+		// initial table markup
+		$form["table_start"] = array(
+			    '#type' => 'markup',	   
+			    '#value' => "<br/><table border =\"1\">
+			    			<tr>
+			    				<td align='center'><b>Image Ref.</b></td>
+			    				<td align='center'><b>Image Thumbnail</b></td>
+			    				<td align='center'><b>Referenced NodeIDs</b></td>
+			    			</tr>",
+			);
+		
+		foreach($nid_list as $imgref_nid)
+		{
+			//dvr($imgref_nid['nid_list']);
+			$nodes = $imgref_nid['nid_list'];
+			$fileid = $imgref_nid['imgref_nid'];
+			$urls ='';
+			
+			$fileinfo = _get_file_info_by_nid($fileid);
+			$thumb_path = $fileinfo['image_thumb_path'];
+			
+			
+			if(count($nodes) > 0) // shows only those have nodes referenced.
+			{
+			
+					$form["table_start$fileid"] = array(
+					    '#type' => 'markup',	   
+					    '#value' => "<tr>",
+					);
+					
+					$form["imgref_$fileid"] = array(
+					    '#type' => 'markup',
+					    '#value' => l($fileid,"node/$fileid"),	
+						'#prefix' => "<td align='center'>",
+						'#suffix' => "</td>",		    
+					); 
+					
+					$form["image_$fileid"] = array(
+					    '#type' => 'markup',	   
+					    '#value' => "<img src=\"$thumb_path\" />",
+						'#prefix' => "<td align='center'>",
+						'#suffix' => "</td>",
+					);
+					
+					
+					foreach($nodes as $nid)
+					{
+						$urls .= l("$nid","node/$nid")." - "._get_nodetitle($nid)."<br/>";
+					}	
+					
+					$form["nid_list_$fileid"] = array(
+					    '#type' => 'markup',	   
+					    '#value' => $urls,
+						'#prefix' => "<td>",
+						'#suffix' => "</td>",
+					);
+					
+					
+					$form["table_end$imgref_nid"] = array(
+					    '#type' => 'markup',	   
+					    '#value' => "</tr>",
+					);
+			}
+			
+		}
+		
+		
+		$form["table_end"] = array(
+			    '#type' => 'markup',	   
+			    '#value' => "</table>",
+			);
+		
+	}
+	else
+	{
+			$form["msg2"] = array(
+					    '#type' => 'markup',	   
+					    '#value' => "<span style=\"color:red\"><b>There are no nodes in Channel = $chid.<br/>Please Select a different Channel to View.</span><br/>",
+				);
+	}
+	
+
+	//$channel_list = drupal_map_assoc(array("Live"=>1, "Stagging"=>2)); 	
+
+	$channel_list = _get_channel_list();
+	
+	$form['ch_id_select'] = array(
+	    '#type' => 'select',
+	    '#title' => t('Select a Channel:'),
+	    '#options' => $channel_list,
+	    '#description' => t('Change Channel View.'),
+	);		
+		
+	$form['submit'] = array(
+	'#type' => 'submit', 
+	'#value' => t('Check!'),
+	//'#suffix' => '<br/><br/>'.l("Go Back", "assetmanagement_form_asset_handle"),
+	
+	);
+
+		
+	return $form;
+
+}
+
+
+/* Implementation of assetmanagement_form_chid_asset_nid_link_validate
+ * Checks validity of channel id
+ */
+function assetmanagement_form_chid_asset_nid_link_validate($form, &$form_state) {
+		
+	if ($form_state['values']['ch_id_select'] == 0 || empty($form_state['values']['ch_id_select']))
+	{
+		form_set_error('', t('Please choose a correct Channel ID!'));
+	}
+	else
+	{
+		
+		$chid = $form_state['values']['ch_id_select'];
+		
+		// check if the tables have that channelid
+		
+		$cnt_tblmhegassets = _count_tblmhegassets($chid);
+		
+		if($cnt_tblmhegassets < 1)
+		{
+			form_set_error('', t("There is no reference to channel=$chid in the tblmhegassets table. 
+								Please try again. Or populate the table for this channelid
+								by doing a refresh"));
+		}
+		
+	}
+	
+}
+
+/*
+ * Implementation of assetmanagement_form_chid_alloc_submit
+ * basically a refresh with a different chid value
+ */
+function assetmanagement_form_chid_asset_nid_link_submit($form, &$form_state) {
+ 
+   $query_string = 'chid='.$form_state['values']['ch_id_select'];
+  
+  	drupal_goto($path = 'assetmanagement_form_asset_nid_link', $query = $query_string  , $fragment = NULL, $http_response_code = 302);  
+}
+
+
+
+
+// ==== FORM : assetmanagement_form_asset_management_refresh =======//
+function assetmanagement_form_ass_man_refresh()
+{
+	$channel_list = _get_channel_list();
+	
+	$form['ch_id_select'] = array(
+	    '#type' => 'select',
+	    '#title' => t('Select a Channel:'),	    
+	    '#options' => $channel_list,
+	    '#description' => t('Select the Channel you want to rebuild Assets'),
+	);	
+	
+	$form["action"] = array(
+			    '#type' => 'hidden',	   
+			    '#value' => "refresh",
+			);	
+	
+	$form['submit'] = array(
+	'#type' => 'submit', 
+	'#value' => t('Submit'),
+	'#submit' => array('assetmanagement_generic_submit'),
+	'#validate' => array('assetmanagement_generic_validate'),	
+	);
+	  	
+	return $form;
+
+}
+
+// ==== FORM : assetmanagement_form_channel_check_assets =======//
+
+function assetmanagement_form_ch_chk_ass()
+{
+	$channel_list = _get_channel_list();
+	
+	$form['ch_id_select'] = array(
+	    '#type' => 'select',
+	    '#title' => t('Select a Channel:'),	    
+	    '#options' => $channel_list,
+	    '#description' => t('Select the Channel you want to Check Assets'),
+	);	
+	
+	$form["action"] = array(
+			    '#type' => 'hidden',	   
+			    '#value' => "allocate",
+			);	
+	
+	$form['submit'] = array(
+	'#type' => 'submit', 
+	'#value' => t('Submit'),
+	'#submit' => array('assetmanagement_generic_submit'),
+	'#validate' => array('assetmanagement_generic_validate'),	
+	);
+	  	
+	return $form;
+
+}
+
+
+//==== FORM : generic validation + submit ====
+
+function assetmanagement_generic_validate($form, &$form_state){
+
+	$action = $form_state['values']['action'];
+	$chid = $form_state['values']['ch_id_select'];
+	
+	//dvr($form_state['values']);
+	
+	if ($chid == 0 || empty($chid))
+	{
+		form_set_error('', t('Please choose a correct Channel ID!'));
+	}
+	else
+	{
+		switch($action)
+		{	
+			case 'allocate':
+			{
+					
+					// check if the tables have that channelid				
+					$cnt_tblmhegassets = _count_tblmhegassets($chid);				
+					if($cnt_tblmhegassets < 1)
+					{
+						form_set_error('', t("There is no reference to channel=$chid in the tblmhegassets table. 
+											Please try again. Or populate the table for this channelid
+											by doing a refresh"));
+					}				
+						
+			}break;
+				
+			case 'refresh' :
+			{
+			
+				// check if the tables have that channelid				
+				$cnt_tblchannelmap = _count_tblchannelmap($chid);				
+				if($cnt_tblchannelmap < 1)
+				{
+					form_set_error('', t("There is no reference to channel=$chid in the tblmhegassets table. 
+										Please try again. Or populate the table for this channelid
+										by doing a refresh"));
+				}		
+			
+			}break;
+			
+			default:
+				form_set_error('', t("Unknown Action - $action"));
+				break;
+		}
+	
+	}
+	
+}
+
+function assetmanagement_generic_submit($form, &$form_state){
+	
+	$action = $form_state['values']['action'];
+	$chid = $form_state['values']['ch_id_select'];
+	$query_string = 'chid='.$chid.'&action='.$action;
+	
+	switch($action)
+	{
+		case 'allocate':
+		{			
+			drupal_goto($path = 'assetmanagement_form_asset_alloc', $query = $query_string  , $fragment = NULL, $http_response_code = 302);
+			
+		}break;
+		
+		case 'refresh':
+		{			
+			drupal_goto($path = 'assetmanagement_report_ch_handle', $query = $query_string  , $fragment = NULL, $http_response_code = 302);			  
+		}break;			
+	}
+}
+
+
+
+
+
+//===================================================================
+//
+//  H E L P E R		F U N C T I O N S
+//
+//===================================================================
+
+
+// OBSOLETE PEICE OF CODE ******
+
+/*
+
+function ASSETMANAGE_check_node_for_assets($nodeid, $nodetype, $chid)
+{
+	switch($nodetype)
+	{
+		case "index_multiple":
+		{			
+			$query = "SELECT nid, field_index_imgref_p1_nid FROM content_type_index_multiple WHERE nid=%d";
+			$queryresult = db_query($query, $nodeid) OR die("Unable to get field_article_image_fid for nid=$nodeid");			
+			$object = db_fetch_object($queryresult);
+			
+			 //while ($object = db_fetch_object($queryresult))
+			// {     
+			    ASSETMANAGE_table_handler($object->field_index_mult_pimage_fid,$chid,"add");
+			// }			
+		}
+		break; 
+		
+		case "article_multiple":
+		{		
+			$query = "SELECT nid, field_article_image_fid FROM content_type_article WHERE nid=%d";
+			$queryresult = db_query($query, $nodeid) OR die("Unable to get field_article_image_fid for nid=$nodeid");			
+			
+			 while ($object = db_fetch_object($queryresult))
+			 {     
+			    ASSETMANAGE_table_handler($object->field_article_image_fid,$chid,"add");
+			 }
+		
+		}break;
+		
+		default:
+			break;		
+	
+	}
+
+}*/
+
+
+
+
+/*
+ * Implementation of : asset_table_handler
+ * used to add/delete item from tblmhegassets
+ * $slot - used to force a slot. (-1) = get the system to calculate.
+ * The table content is populated and deleted 
+ */
+function ASSETMANAGE_table_handler($imgref_nid,$chid,$action, $slot)
+{
+		global $tblmhegassets_msg_log;
+		
+		if($imgref_nid != 0 && isset($imgref_nid))
+		{
+			// adds a specific fid into the table with a specific chid.
+			// if duplicates are found populate the error form and dont add.
+			
+			switch($action)
+			{
+			
+				case 'add':
+				{
+					/*
+					 * IMPORTANT :
+					 * When we are adding assets to the table the promo slot allocation is important.
+					 * By default : we increment the slot number. Upto (5). if over 5 we default it to 0.
+					 * This is done by the calling function by passing $slot to this func.
+					 */ 
+					
+					
+					$query = "SELECT count(*) as cnt FROM {tblmhegassets} WHERE imgref_nid=%d AND channelid=%d";
+					$queryresult = db_query($query, $imgref_nid, $chid);
+					$record = db_fetch_object($queryresult);
+					
+					if($record->cnt < 1) // no duplicates, then add
+					{
+						// if table is empty for this fid and chid, so you can populate.
+						// this check avoids duplication
+						$fileinfo = array();
+						
+						$fileinfo = _get_file_info_by_nid($imgref_nid);
+						
+						//dvr($fileinfo);
+						
+						$orig_path = $fileinfo["image_orig_path"];
+						$thumb_path = $fileinfo["image_thumb_path"];
+						$filemime = $fileinfo["filemime"];
+						
+						if($filemime == 'image/png')
+						{
+							// get next available slot. also makes sure slot is not over upperlimit.
+							if($slot == -1)
+							{ 	$slot = _get_next_pslot_by_chid($chid);	}
+							else
+							if($slot > 5)
+							{	$slot = 0; }					
+							
+			
+							$query = "INSERT INTO {tblmhegassets} 
+									(imgref_nid, channelid, thumb_path, orig_path, promo_slot, content_nids) 
+									VALUES (%d,%d,'%s','%s',%d,'%s')";							
+							$queryresult = db_query($query, 
+													$imgref_nid, 
+													$chid, 
+													$thumb_path, 
+													$orig_path, $slot, NULL) OR DIE("unable to insert record to tblmhegassets\n [$query]\n");	
+							
+							// log it
+							$msg = "<br/><b>INSERTED: </b>id=[$imgref_nid], chid=[$chid], original=[$orig_path]";															 
+							array_push($tblmhegassets_msg_log, $msg); 						
+						}
+						else
+						{
+							$msg = "<br/><span style=\"color:red\"><b>ERROR: Filetype not supported for image nid=[$imgref_nid] at path=[$orig_path]</b></span>";															 
+							array_push($tblmhegassets_msg_log, $msg); 							
+						}			
+						
+					}
+					else
+					{
+						// log it
+						array_push($tblmhegassets_msg_log, "<br/><b>DUPLICATE: </b> duplicate entry - image reference node=[$imgref_nid] for channel=[$chid]");				
+					}
+				}
+				break;
+				
+				case 'delete': // deletes a specific imgref_id for a specific chid		
+				{
+					$query = "DELETE FROM {tblmhegassets} WHERE channelid = %d AND imgref_nid = %d";	
+					$queryresult = db_query($query, $chid, $imgref_nid);	
+					
+					// log it
+					array_push($tblmhegassets_msg_log, "<br/><b>DELETED: </b> imgref_id=$imgref_nid in channel=$chid");				
+				}break;
+				
+				case 'flush': // deletes all content on table linked to a specific channelid
+				{
+					$query = "DELETE FROM {tblmhegassets} WHERE channelid = %d";	
+					$queryresult = db_query($query, $chid);	
+
+					// log ith
+					array_push($tblmhegassets_msg_log, "<br/><b>DELETED: </b>deleted all content");
+				
+					
+				}break;
+				
+				default:
+					return false;
+					break;		
+				
+			
+			}
+			
+		}	
+}
+
+
+//===================================================================
+
+//===================================================================
+//
+//  S U B		H E L P E R		F U N C T I O N S
+//
+//===================================================================
+
+
+/*
+ * Implementation of _get_imgrefnid()
+ * gets the field_xxx_imgref_p1_nid from the content_type_xxxx table
+ * by default for now, $imgrefnum = 1
+ * @return - an array of fid's referenced by that nodeid
+ */
+function _get_imgrefnid($nodeid, $imgrefnum){
+	
+	switch(_get_node_type($nodeid))
+	{
+		case 'index_multiple':
+			$imgref_fieldname = "field_index_imgref_p".$imgrefnum."_nid";
+			$table_name = "content_type_index_multiple";
+			
+			break;
+			
+		case 'article_multiple':
+			$imgref_fieldname = "field_article_imgref_p".$imgrefnum."_nid";
+			$table_name = "content_type_article";
+			
+			break;
+			
+		default: 	
+			die("Unable to get imgrefnid for nid=$nodeid, unknown content_type");
+			break;
+	
+	}
+	
+	$query = "SELECT $imgref_fieldname FROM {$table_name} WHERE nid = %d";	
+	$queryresult = db_query($query, $nodeid ) OR die("Unable to get imgrefnid for nid=$nodeid");	
+	
+	$fid_array = array();
+	
+	//create the fid array;
+	while($record = db_fetch_object($queryresult))
+	{
+		if(!empty($record->$imgref_fieldname))// sometimes the image field is empty.
+		{
+			array_push($fid_array, $record->$imgref_fieldname);
+		}				
+	}
+	
+	return $fid_array;
+}
+
+
+
+/*
+ * Implementation of _get_file_path_by_nid
+ * used to get file information by passing a nid of
+ * type [image]
+ * 
+ * @return - array orig_path, thumb_path
+ */
+
+function _get_file_info_by_nid($nodeid)
+{
+	if(_get_node_type($nodeid)=='image')
+	{
+		//initialise to null
+		$file_info["image_orig_path"] = NULL;
+		$file_info["image_thumb_path"] = NULL;
+		
+		//goto {image} get necessary info and populate array.
+		//notes - theres a one-one relationship between image sizes and fids.
+		//therefore there maybe 2 fids per image-nid.
+		
+		// -- get orig path --
+		$query = "SELECT image.fid, files.filepath, files.filemime, image.image_size FROM {image}
+				  LEFT JOIN {files}
+				  ON files.fid = image.fid
+				  WHERE image.nid = %d AND image.image_size = '_original'";	
+		
+		$queryresult = db_query($query, $nodeid ) OR die("Unable to get origpath for nid=$nodeid");	
+	
+		if($record = db_fetch_object($queryresult))
+		{
+			// original file path - always existent.
+			$file_info["image_orig_path"] = $record->filepath;
+			
+			// get filemime - always existent.
+			$file_info["filemime"] = $record->filemime;	
+		}
+		
+		// -- get thumb path --
+		// if thumbnail is not available (for small images) then use the orig image.
+		$query = "SELECT image.fid, files.filepath, image.image_size FROM {image}
+				  LEFT JOIN {files}
+				  ON files.fid = image.fid
+				  WHERE image.nid = %d AND image.image_size = 'thumbnail'";	
+		
+		$queryresult = db_query($query, $nodeid ) OR die("Unable to get origpath for nid=$nodeid");	
+	
+		if($record = db_fetch_object($queryresult))
+		{
+			$file_info["image_thumb_path"] = $record->filepath;
+		}
+		else // else use the orig image
+		{
+			if(!empty($file_info["image_orig_path"]))
+			{
+				$file_info["image_thumb_path"] = $file_info["image_orig_path"];
+			}		
+		}			
+		
+		return $file_info;		
+	}
+	else
+		die("Error nid=$nodeid is not an image type");	
+}
+
+
+/*
+ * Implementation of _get_next_pslot_by_chid
+ * this returns the next available promo_slot for a given channelid.
+ */
+function _get_next_pslot_by_chid($chid)
+{
+	$query = "SELECT MAX(promo_slot) as promo_max_slot FROM {tblmhegassets} WHERE channelid = %d";	
+	$queryresult = db_query($query, $chid ) OR die("Unable to get max_pslot for chid=$chid");
+	$record = db_fetch_object($queryresult);
+	
+	if(!empty($record->promo_max_slot)) // if slots is not null.
+	{
+		if($record->promo_max_slot < 5) // check if over the limit
+		{ $next_available_pslot = ($record->promo_max_slot) + 1; }
+		else
+		{ $next_available_pslot = 0; }			
+	}
+	else
+	{
+		$next_available_pslot = 1;
+	}	
+	
+	return $next_available_pslot;
+}
+
+
+/*
+ * Implementation of _html_summary_tblmhegassets
+ * queries the tblmhegassets and outputs a html summary report - table format.
+ */
+function _html_summary_mhegassets($chid)
+{	
+	if($chid != 0)
+	{		
+		$html = "<br/><br/><b>Promo Slot Assignment Summary for Channel:</b> <i> $chid </i>: <br/><br/>"; 	
+		$html .= "<table><tbody>";
+		$html .='<tr>
+	            <th valign="top">Image Ref.</th>
+	            <th valign="top">Thumbnail</th>
+	            <th valign="top">File Path</th>
+	            <th valign="top">Promo Slot</th>
+	        </tr>';		
+		
+		//query and get - imgref_nid, orig_path, promo_slot. 
+		$query = "SELECT imgref_nid, orig_path, thumb_path, promo_slot FROM {tblmhegassets} WHERE channelid = %d;";	
+		$queryresult = db_query($query, $chid ) OR die("Unable to get mhegassets info for chid=$chid");		
+		
+		while($record = db_fetch_object($queryresult))
+		{
+			$html .= "<tr>";
+			$html .= '<td valign="top">'.$record->imgref_nid.'&nbsp;&nbsp;&nbsp;</td>';
+			$html .= '<td valign="top"><img src="'.$record->thumb_path.'" />&nbsp;&nbsp;&nbsp;&nbsp;</td>';
+			$html .= '<td valign="top">'.$record->orig_path.'</td>';
+			
+			if($record->promo_slot == 0)
+			{
+				$html .= '<td valign="top"><span style="color:red"><b>-NONE-</b></span></td>';
+			}
+			else
+			{
+				$html .= '<td valign="top">promo'.$record->promo_slot.'</td>';
+			}
+			
+			//$html .= '<td valign="top">promo'.$record->promo_slot.'</td>';
+			$html .= "</tr>";	
+		}
+		
+		$html .= "</tbody></table>";
+		$html .= "<br/><br/><br/>";
+	}	
+	return $html;	
+}
+
+
+/*
+ * Implementation of _get_asset_nid_relationship
+ * params - $chid
+ * returns - an array with imgref_nids and referenced nids
+ * format - array(
+ * 
+ * 'imgref_nid'=> array(1, 3, 4), 
+ * 
+ * )
+ * 
+ */
+
+function _get_asset_nid_relationship($chid)
+{
+	//first get all the imgref_nids from the image table;
+	$query = "SELECT nid FROM {image} WHERE image_size = '_original'";	
+	$queryresult = db_query($query, $chid ) OR die("Unable to get nids from {image}");
+	
+	$nid_list = array();
+	
+	$i=0;
+	
+	while($record = db_fetch_object($queryresult))
+	{
+		$nid_list[$i]["imgref_nid"] = $record->nid;
+		$nid_list_temp = array();
+		
+		//--- now inside this we get all the promo node refs --- 
+		
+		//first we get from articles;
+		$query_articles = "SELECT nid, field_article_imgref_p1_nid
+				FROM {content_type_article}
+				WHERE field_article_imgref_p1_nid = %d				
+				AND nid IN (SELECT nodeid FROM {tblchannelmap} WHERE channelid = %d)";
+		
+		$queryresult_articles = db_query($query_articles, $record->nid, $chid ) OR die("Unable to perform query \n$query\n");
+		
+		
+		while($object = db_fetch_object($queryresult_articles))
+		{
+			   array_push($nid_list_temp, $object->nid);			  		
+		}
+	
+		//then we get from articles;
+		$query_indexes = "SELECT nid, field_index_imgref_p1_nid
+				FROM {content_type_index_multiple}
+				WHERE field_index_imgref_p1_nid = %d				
+				AND nid IN (SELECT nodeid FROM {tblchannelmap} WHERE channelid = %d)";
+		
+		$queryresult_indexes = db_query($query_indexes, $record->nid, $chid ) OR die("Unable to perform query \n$query\n");
+		
+		
+		while($object = db_fetch_object($queryresult_indexes))
+		{
+			  array_push($nid_list_temp, $object->nid);			  		
+		}
+	
+		$nid_list[$i]["nid_list"] = $nid_list_temp;		
+		$i++;
+	}
+	
+	
+	return $nid_list;
+	
+	
+
+}
+
+/*
+ * returns a count of tblmhegassets
+ */
+
+function _count_tblmhegassets($chid)
+{
+	if($chid == -1) // show full count
+	{
+		$query = "SELECT COUNT(*) AS cnt FROM {tblmhegassets}";	
+		$queryresult = db_query($query);
+		$object = db_fetch_object($queryresult);
+	
+    	$count = $object->cnt;
+	
+	}
+	else
+	if($chid > 0)
+	{
+		$query = "SELECT COUNT(*) AS cnt FROM {tblmhegassets} WHERE channelid = %d";	
+		$queryresult = db_query($query, $chid);
+		$object = db_fetch_object($queryresult);
+	
+    	$count = $object->cnt;
+	}
+	
+	return $count;
+}
+
+
+
+
+
+
+
+
+
+
+

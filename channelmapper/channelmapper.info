@@ -1,0 +1,4 @@
+; $Id$
+name = Channel Mapper
+description = This module is used to build and maintain relationships between channels and nodes
+core = 6.x

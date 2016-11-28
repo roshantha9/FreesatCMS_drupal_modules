@@ -1,0 +1,4 @@
+; $Id$
+name = XML Export
+description = This module takes a node and tries to export it to a bespoke xml format later used as content for MHEG iTV applications
+core = 6.x

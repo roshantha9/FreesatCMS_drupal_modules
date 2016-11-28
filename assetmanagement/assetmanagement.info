@@ -1,0 +1,4 @@
+; $Id$
+name = Asset Management
+description = This module handles all the asset allocation and organisation in the mheg cms.
+core = 6.x

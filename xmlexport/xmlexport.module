@@ -1,0 +1,1533 @@
+<?php
+// $Id$
+
+
+
+/**
+* Display help and module information
+* @param path which path of the site we're displaying help
+* @param arg array that holds the current path as would be returned from arg() function
+* @return help text for the path
+*/
+function xmlexport_help($path, $arg) {
+  $output = '';  //declare your output variable
+  switch ($path) {
+    case "admin/help#xmlexport":
+      $output = '<p>'.  t("Exports a node as a bespoke XML format to be used by MHEG apps") .'</p>';
+      break;
+  }
+  return $output;
+} // function xmlexport_help
+
+
+/**
+* Valid permissions for this module
+* @return array An array of valid permissions for the xmlexport module
+*/
+function xmlexport_perm() {
+  return array('access xmlexport content', 'administer xmlexport', 'create xmlexport');
+} // function xmlexport_perm()
+
+/*
+function xmlexport_admin() {
+  $form = array();
+
+  $form['xmlexport_maxdisp'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Maximum number of links'),
+    '#default_value' => variable_get('xmlexport_maxdisp', 3),
+    '#size' => 2,
+    '#maxlength' => 2,
+    '#description' => t("The maximum number of links to display in the block."),
+    '#required' => TRUE,
+  );
+
+  return system_settings_form($form);
+}
+*/
+
+function xmlexport_menu() {
+
+  $items = array();
+
+  
+  $items['admin/settings/xmlexport'] = array(
+    'title' => 'XML Export admin settings-demo',
+    'description' => 'Description of your On this date settings page',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('xmlexport_admin'),
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_NORMAL_ITEM,
+   );
+
+  
+  //----- REPORTS ----
+  
+   // output the xml of the channel
+  $items['xmlexport_report_conv_ch_xml'] = array(
+    'title' => 'XML Export Report :::',
+    'page callback' => 'xmlexport_rep_conv_ch_to_xml',
+    'access arguments' => array('access xmlexport content'),
+    'type' => MENU_CALLBACK
+  );
+
+	//----- FORMS ----
+
+  // select the channel which you want to convert into xml
+  $items['xmlexport_form_chid_xml'] = array(
+    'title' => 'Select Channel to Convert',
+    'page callback' => 'xmlexport_frm_showxml_by_chid',
+    'access arguments' => array('access xmlexport content'),
+    'type' => MENU_CALLBACK
+  );
+	
+  // select the channel which you want to upload
+  $items['xmlexport_chn_asset_upload'] = array(
+    'title' => 'Select which channel you want to upload',
+    'page callback' => 'xmlexport_frm_chn_asset_upload',
+    'access arguments' => array('access xmlexport content'),
+    'type' => MENU_CALLBACK
+  );
+
+  return $items;
+}
+
+
+
+//===================================================================
+//
+//  C A L L B A C K S
+//
+//===================================================================
+
+//********* FORM Callbacks *********
+
+/*
+ * Callback of - form, show xml by NodeID
+ */
+function xmlexport_frm_showxml_by_node() {
+  return drupal_get_form('xmlexport_form_node_select');
+}
+
+
+/*
+ * Callback of - form, show xml by Channel ID
+ */
+function xmlexport_frm_showxml_by_chid() {
+  return drupal_get_form('xmlexport_form_chid_select');
+}
+
+
+//********* REPORT Callbacks *********
+
+/*
+ * Implementation of xmlexport_rep_conv_ch_to_xml
+ * Takes in a channel and converts it into XML
+ */
+
+function xmlexport_rep_conv_ch_to_xml()
+{
+	// get the channel id
+	$chid = $_GET['chid'];
+		
+	if(!empty($chid))
+	{
+					
+			// --- File I/O stuff ---
+			// ----------------------
+			
+			// append to file
+		
+		  	// assign xml filenames
+			$index_xml_outfile = "index.xml";
+			$data_xml_outfile = "data.xml";
+			
+			// reset procedure - open and close.
+			$fh_index_xml = fopen($index_xml_outfile, 'wb') or die("can't open file - $index_xml_outfile");
+			fclose($fh_index_xml);	
+			$fh_data_xml = fopen($data_xml_outfile, 'wb') or die("can't open file - $data_xml_outfile");
+			fclose($fh_data_xml);
+			
+			//now delete (unlink)
+			unlink($index_xml_outfile);
+			unlink($data_xml_outfile);
+			
+			// open for appending
+		  	$fh_index_xml = fopen($index_xml_outfile, 'wb') or die("can't open file - $index_xml_outfile");
+		  	$fh_data_xml = fopen($data_xml_outfile, 'wb') or die("can't open file - $data_xml_outfile");
+		  	
+		  	
+			$XML_In_index = ''; 	// this is where the xml for the indexes are stored
+			$XML_In_page = '';		// this is where the xml for the articles are stored
+		  	
+		  	
+			// query tblchannelmap for chid, and sort by id.
+			$query = "SELECT * FROM tblchannelmap WHERE channelid = %d ORDER BY id";
+			$queryresult = db_query($query, $chid);
+			
+			/*
+			// --- flush the tblmhegassets table ---
+			// we do this to get a clean table. 
+			// the assets will be tracked per channel.
+			
+			ASSETUPLOAD_table_handler(9999,$chid,"flush");			
+			*/
+			
+			
+			// generate an xml output for each entry 
+			// - write to file at the same time.
+									
+			while ($row = db_fetch_object($queryresult))
+		 	{
+		        	//dpm( $row );
+		 			// loop through all nodes and perform xml conversion.
+		        	
+		 			if(_get_nodetype($row->nodeid)=="index_multiple")
+		 			{
+		 				$XML_In_index .= INDEX_convert_to_xml($row->nodeid, $chid);
+		 				//dpm( $XML_In_index );	 
+
+		 			/*
+		 			// ---- asset management -----//
+					// check if there are any assets linked to this node.
+		 			// if there are any then the fid's are added to the tblmhegassets.
+		 			// later these files are uploaded to the correct location.
+		 			
+		 			// --- save info on DB for use when uploading the files ---
+					ASSETUPLOAD_check_node_for_assets($row->nodeid, "index_multiple", $chid);		
+		 			*/	
+		 				
+		 			}
+		 			else
+		 			if(_get_nodetype($row->nodeid)=="article_multiple")
+		 			{
+		 				$XML_In_page .= ARTICLE_convert_to_xml($row->nodeid, $chid);
+		 				//dpm( $XML_In_page );	
+
+		 				/*
+		 				// ---- asset management -----//
+		 				// check if there are any assets linked to this node.
+		 				// if there are any then the fid's are added to the tblmhegassets.
+		 				// later these files are uploaded to the correct location.
+		 				
+		 				// --- save info on DB for use when uploading the files ---
+						ASSETUPLOAD_check_node_for_assets($row->nodeid, "article_multiple", $chid);
+						*/
+		 				
+		 			}
+		 	}
+		 	
+		 	//dpr($XML_In_index);
+		 	//dpr($XML_In_page);	
+		 	
+		 	
+		 	$page_content = "";
+		 	
+		 	$page_content .= "</br></br><h2>INDEX XML :</h2><br/>";
+		 	
+		 	$filtered_xml = str_replace("<","&lt;",$XML_In_index);
+		 	$filtered_xml = str_replace(">","&gt;",$filtered_xml);
+		 	
+		 	$page_content .= "<pre>$filtered_xml</pre>";
+		 	
+		 			 	
+		 	$page_content .= "</br></br><h2>DATA XML :</h2><br/>";
+		 	
+		 	
+		 	$filtered_xml = str_replace("<","&lt;",$XML_In_page);
+		 	$filtered_xml = str_replace(">","&gt;",$filtered_xml);
+		 	
+		 	$page_content .= "<pre>$filtered_xml</pre>";
+		 	
+		 	
+		 	//--- now do the utf8 conversion + mheg compatible hex conversion ----
+		 	
+		 	$XML_In_index_converted =  _string_to_mheghex_convert ($XML_In_index);
+		 	$XML_In_page_converted = _string_to_mheghex_convert ($XML_In_page);		 	
+		 	
+		 	fwrite($fh_index_xml, $XML_In_index_converted);
+		 	fwrite($fh_data_xml, $XML_In_page_converted);
+				 	
+		 	fclose($fh_index_xml);
+		 	fclose($fh_data_xml);
+		 	
+		 	// report on page a summary
+			$page_content .= "<br/><br/><b>Done!!</b>";
+		
+	}
+	else
+	{
+		$page_content = "Empty Channel ID !!";
+	
+	}
+ 	
+ 	return $page_content;
+ 	
+}
+
+
+//===================================================================
+//
+//  C U S T O M   D E F I N E D   F O R M S
+//
+//===================================================================
+
+// *********************** Form Node Select ************************//
+// Lets the user select a node and convert it into XML
+// Specially used for Article Multiple Nodes
+
+
+/*
+ * Implementation of xmlexport_form_node_select
+ * Shows a Form where the user inputs the NodeID and the XML filename,
+ * to generate the MHEG XML file
+ */
+function xmlexport_form_node_select($form_state) {
+
+
+  $form['node_id'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Node ID'),
+    '#size' => 3,
+    '#maxlength' => 5,
+    '#description' => t('Enter the Node ID you want to convert to XML'),
+  );
+  $form['xml_output'] = array(
+    '#type' => 'textfield',
+    '#title' => t('XML Output'),
+    '#size' => 30,
+    '#maxlength' => 64,
+    '#description' => t('Enter the filename of the output XML File'),
+  );
+  $form['hidden'] = array('#type' => 'value', '#value' => 'is_it_here');
+  $form['submit'] = array('#type' => 'submit', '#value' => t('Generate XML'));
+  //$form['#redirect'] = 'xmlexport';
+  return $form;
+}
+
+/*
+ * Implementation of xmlexport_form_node_select_validate
+ * Checks if the entered NodeID exists, and if the filename is valid.
+ */
+function xmlexport_form_node_select_validate($form, &$form_state) {
+
+    if ($form_state['values']['node_id'] == '' || $form_state['values']['xml_output'] == '')
+    {
+        form_set_error('', t('Please fill in all the fields !'));
+    }
+    else
+    {
+        // get node id list
+        $query = "SELECT nid FROM {node}";
+        $queryresult = db_query($query);
+
+        $flag = false;
+        while($record = db_fetch_object($queryresult))
+        {
+            if($form_state['values']['node_id'] == $record->nid)
+            {
+                $flag = true;
+            }
+
+        }
+
+        if($flag == false)
+        {
+             form_set_error('', t('NodeID does not Exist! Please Enter a Valid Node ID'));
+        }
+    }
+}
+
+/*
+ * Implementation of xmlexport_form_node_select_submit
+ * Submits the form to xmlexport_all to do the text processing.
+ */
+function xmlexport_form_node_select_submit($form, &$form_state) {
+  
+  //drupal_set_message(t('Your form has been saved.'));
+
+  $query_string = 'nodeid='.$form_state['values']['node_id'].'&xmlout='.$form_state['values']['xml_output'];
+
+  drupal_goto($path = 'xmlexport_report_conv_ch_xml', $query = $query_string  , $fragment = NULL, $http_response_code = 302);
+
+}
+
+
+// *********************** Channel ID Select ************************//
+// Lets the user select a Channel ID and Convert the linked node tree
+// to XML-MHEG format
+
+
+/*
+ * Implementation of xmlexport_form_chid_select
+ * Shows a Form where the user select the channel id
+ * from a drop down - to convert to XML.
+ */
+function xmlexport_form_chid_select($form_state) {
+
+  	//$channel_list = drupal_map_assoc(array("NONE"=>0, "Live"=>1, "Stagging"=>2));
+  	$channel_list = _get_channel_list();
+
+	$form['ch_id'] = array(
+	    '#type' => 'select',
+	    '#title' => t('Select a Channel:'),
+	    '#options' => $channel_list,
+	    '#description' => t('Select the Channel you want to Convert to XML.'),
+	);
+    
+  	$form['submit'] = array('#type' => 'submit', '#value' => t('Generate XML'));
+  	
+  	return $form;
+}
+
+/*
+ * Implementation of xmlexport_form_chid_select_validate
+ * Checks validity of channel id.
+ */
+function xmlexport_form_chid_select_validate($form, &$form_state) {
+
+	//dvr($form_state['values']);
+	if ($form_state['values']['ch_id'] == 0)
+	{
+		form_set_error('', t('Please choose a correct Channel ID!'));
+	}
+	else
+	{
+		$chid = $form_state['values']['ch_id'];
+		// check if the table has that channelid
+		$query = "SELECT COUNT(*) AS cnt FROM tblchannelmap WHERE channelid=%d";
+		
+		$queryresult = db_query($query, $chid );
+		
+		$record = db_fetch_object($queryresult);
+		
+		if($record->cnt == 0)
+		{
+			form_set_error('', t("There is no reference to $chid in the Channel Map table. Please try again."));
+		}
+		
+	}
+
+}
+
+
+/*
+ * Implementation of xmlexport_form_chid_select_submit
+ * Submits the form to xmlexport_all to do the text processing.
+ */
+function xmlexport_form_chid_select_submit($form, &$form_state) {
+  
+  $query_string = 'chid='.$form_state['values']['ch_id'];
+
+  drupal_goto($path = 'xmlexport_report_conv_ch_xml', $query = $query_string  , $fragment = NULL, $http_response_code = 302);
+
+}
+
+//===================================================================
+//
+//  H E L P E R		F U N C T I O N S
+//
+//===================================================================
+
+
+/**
+   The following steps will be taken to form the data.xml file
+   ------------------------------------------------------
+   
+	** Subpages ( Count number of headings )
+
+	** Colour Keys (Hardcode ?)
+	 * Green Button-Link
+	 * Blue Button-Link
+	 * Red Button-Link
+	 * Yellow Button-Link
+
+	** SUB PAGE	
+	 - <template>Template ( content_type_article -> field_article_templ_type_value )
+	 - <text101>Title (Node->title)
+	 - <text102> Heading 1 ( content_type_article -> field_article_heading_value )
+	 - <text103> Page number : eg: 1 of 3 ( content_type_article -> field_article_page_num_value )
+	 - <text104> Next Page ( logically derive this )
+	 - <text105> Previous Page ( logically derive this )
+	 - <text106> Body ( content_type_article -> field_article_body_value )
+	 - <img101> Promo picture ( files -> filename )
+	 - <img102> down arrow ( Logically derive )
+	 - <img103> up arrow (logically derive )
+	 
+	The Following is an example of the XML data file :
+	---------------------------------------------------
+	
+	<page1001>
+		<subpages>3</subpages>
+		<link_g>
+			<pageid>index1000</pageid>
+			<datafile>~/index.xml</datafile>
+			<scene>~/s/homeindex.asn</scene>
+		</link_g>
+		<subpage1>
+			<template>tmpl1</template>
+			<text101>Freesat News</text101>
+			<text102>BBC iPlayer & ITV Player</text102>
+			<text103>1 of 3</text103>
+			<text104>Next Page</text104>
+			<text105> </text105>
+			<text106>body text for page 1</text106>
+			<img101>~/a_img/nothing.png</img101>
+			<img102>~/a_img/arrow_down.png</img102>
+			<img103>~/a_img/nothing.png</img103>				
+		</subpage1>
+		<subpage2>
+			<template>tmpl2</template>
+			<text101>Freesat News</text101>
+			<text102>World Cup 2010 in HD</text102>
+			<text103>2 of 3</text103>
+			<text104>Next Page</text104>
+			<text105>Previous Page</text105>
+			<text106>body text for page 2</text106>
+			<img101>~/d_img/promo2.png</img101>
+			<img102>~/a_img/arrow_down.png</img102>
+			<img103>~/a_img/arrow_up.png</img103>
+		</subpage2>
+		<subpage3>
+			<template>tmpl2</template>
+			<text101>Freesat News</text101>
+			<text102>Food Network launches</text102>
+			<text103>3 of 3</text103>
+			<text104> </text104>
+			<text105>Previous Page</text105>
+			<text106>body text for page 3</text106>
+			<img101>~/d_img/promo2.png</img101>
+			<img102>~/a_img/nothing.png</img102>
+			<img103>~/a_img/arrow_up.png</img103>
+		</subpage3>
+	</page1001>
+	
+   //-------------------------------------------------------------
+*/
+
+function ARTICLE_convert_to_xml($nodeid, $chid)
+{
+	if ($nodeid == 0)
+	{
+		die ("ERROR::ARTICLE_convert_to_xml: Node id was = $nodeid");
+	}
+	  
+	// content variable that will be returned for display
+	  $page_content = '';
+	  
+	  // temporary variable that will hold the data xml file.
+	  $XML_string = '';
+	
+	  //$nodeid = $_GET['nodeid'];
+	  //$outFile = $_GET['xmlout'];
+	  //$nodeid = 11;
+	  
+	  
+	  // ----- The Main Queries that will be called -----
+	  
+	  $article_get_all_by_nid_query = "SELECT vid,
+									  field_article_heading_value,
+									  field_article_page_num_value,
+									  field_article_body_value,
+									  field_article_imgref_p1_nid,
+									  field_article_heading2_value,
+									  field_article_templ_type_value,
+									  field_article_heading_value
+	  								  FROM {content_type_article} WHERE nid = %d order by vid";
+	  
+	  
+	  // --------------------------------------------------
+
+
+	 // form the root tag
+	 $XML_string .= "\n\n<"._create_label_by_nid($nodeid).">\n";
+		
+	 
+	 // get the subpages string
+	 $article_queryResult =  db_query($article_get_all_by_nid_query, $nodeid ) or DIE("error getting article data for node = $nodeid");
+	 $subpages = _get_subpages($article_queryResult);
+	 $maxpages = $subpages["totalpages"];
+	 $XML_string .= $subpages["subpagesxml"];
+	 
+	 
+	 // get the linkg xml for that specific article node.	 
+	 $XML_string .= _get_article_linkg_xml($nodeid, $chid);	 
+	
+	 $pagenum = 1;
+	 $row = 0;
+	 $article_queryResult =  db_query($article_get_all_by_nid_query, $nodeid );
+	 
+	 while ($row = db_fetch_object($article_queryResult))
+	 {     
+	     $XML_string .= _get_subpagedata($row, $pagenum, $maxpages, $nodeid, $chid);
+	     $pagenum++;
+	 }
+	
+	  // we now enter the end root tag
+	  
+	  $XML_string .= "\n</"._create_label_by_nid($nodeid).">\n";
+	
+	  //dpm( $XML_string );
+	  
+	  //$page_content .= "DEBUG : the content above is the XML output for node = $nodeid <br/>";
+	
+	  
+	  //$page_content .= "DEBUG : file [$outFile] written <br/>";
+	
+	  //return $page_content;
+	  
+	  return $XML_string;
+	  
+}
+
+
+
+/*
+ * Below is the format for the index.xml file
+<index1000>
+	<template>idx_tmpl1</template>
+	<title>Welcome</title>
+	<items>5</items>
+	<img101>~/d_img/promo1.png</img101>
+	<link_b>
+		<id>page1001</id>
+		<datafile>~/data/data1.xml</datafile>
+		<scene>~/s/display.asn</scene>
+	</link_b>
+	
+	<item1>
+		<text101>1</text101>
+		<text102>freesat news</text102>
+		<link_s>
+			<id>index1001</id>
+			<datafile>~/index.xml</datafile>
+			<scene>~/s/index.asn</scene>
+		</link_s>
+	</item1>
+	<item2>
+		<text101>2</text101>
+		<text102>HD information</text102>
+		<link_s>
+			<id>page2001</id>
+			<datafile>~/data/data2.xml</datafile>
+			<scene>~/s/display.asn</scene>
+		</link_s>
+	</item2>
+	<item3>
+		<text101>3</text101>
+		<text102>Parental controls settings</text102>
+		<link_s>
+			<id>page3001</id>
+			<datafile>~/data/data3.xml</datafile>
+			<scene>~/s/display.asn</scene>
+		</link_s>
+	</item3>
+	<item4>
+		<text101>4</text101>
+		<text102>Troubleshooting</text102>
+		<link_s>
+			<id>page4001</id>
+			<datafile>~/data/data4.xml</datafile>
+			<scene>~/s/display.asn</scene>
+		</link_s>
+	</item4>
+	
+</index1000>
+ 
+ */
+function INDEX_convert_to_xml($nodeid, $chid)
+{
+	if ($nodeid == 0)
+	{
+		die ("ERROR::INDEX_convert_to_xml: Node id was = $nodeid");
+	}
+
+	// ********** first we need to get the information from the DB *********//
+	
+	// the query below allows us to extract the index heading,
+	// image reference and linkb node ref
+	$query = "SELECT field_index_mult_heading_value,
+					 field_index_mult_ixtype_value,
+					 field_index_imgref_p1_nid,
+					 field_index_mult_linkb_nid  
+			  FROM {content_type_index_multiple} 
+			  WHERE nid = %d";
+			  
+	$queryresult = db_query($query, $nodeid ) or DIE("error getting index data for node = $nodeid");
+    $record = db_fetch_object($queryresult);
+	
+	// get index heading (<title>)
+	$index_heading = $record->field_index_mult_heading_value;
+	
+	// get the blue button noderef
+	$index_linkb_nref = $record->field_index_mult_linkb_nid;
+	//dvr($index_linkb_nref);
+	
+	// get promo image fid
+	$index_image_filename = _get_image_xml_string($chid, $record->field_index_imgref_p1_nid);		
+
+		
+	$index_items = array();
+	// get number of items
+	$index_items = _get_index_ref_nodes($nodeid);
+	$index_num_items = count($index_items);
+	
+	//dvr($index_items);
+	
+	//dvr($index_num_items);
+	// get index label id <i_xxx>
+	// this will be the nodeid if it's a subindex or <index1000> if it's a homeindex 
+	
+	$index_label_id = _create_label_by_nid($nodeid);
+	
+	
+	
+	//-- get the items --
+	// this will include going inside the node referenced
+	// and getting the index title.	
+	// we are going to use a 2D array to store the values:
+	// {"node_id", "node_ixtitle", "node_datafile", "node_scene"}.
+	$i=0;
+	if($index_num_items < 8) // failsafe - incase it returns an infinite number
+	{
+		//dvr($index_items);
+		foreach($index_items as $ixval)		
+		{
+			//dvr($ixval);
+		
+			// get id + title
+			$node_info[$i]['node_id'] = $ixval;
+			$node_info[$i]['node_ixtitle'] = _get_indextitle_by_nid($ixval);
+			
+			$nodetype = _get_nodetype($ixval);
+	
+			// get datafile and scene name (*.asn)
+			if($nodetype == "article_multiple")
+			{
+				$node_info[$i]['node_datafile'] = '~/data/data.xml';
+				$node_info[$i]['node_scene'] = '~/s/display.asn';
+			}
+			else
+			if($nodetype == "index_multiple")
+			{
+				$node_info[$i]['node_datafile'] = '~/index.xml';
+				
+				if( _get_ixtype($ixval) == 0)
+				{
+					$node_info[$i]['node_scene'] = '~/s/homeindex.asn';
+				}
+				else
+				{
+					$node_info[$i]['node_scene'] = '~/s/index.asn';
+				}			
+			}
+				
+			$i++;
+			
+		}
+	}
+	else
+	{
+		die("index record returned too many items in the index - $index_num_items items returned!");
+	}
+	
+	//echo "here !! -1 <br/>";
+	
+	//dvr($node_info);
+	
+	// ***** Now construct the XML *****
+	// *********************************
+	
+	// promo images
+	if(!empty($index_image_filename))
+	{ $promo_xml_string = "<img101>~/d_img/$index_image_filename</img101>"; }
+	else
+	{ $promo_xml_string = "<img101>~/a_img/nothing.png</img101>"; }
+	
+	
+	$XML_string = "\n\n<$index_label_id>\n";
+	
+	$XML_string .= "<template>idx_tmpl1</template>
+				   <title>$index_heading</title>
+				   <items>$index_num_items</items>
+				   $promo_xml_string
+				   <link_b>
+						<id>"._create_label_by_nid($index_linkb_nref)."</id>
+						<datafile>~/data/data.xml</datafile>
+						<scene>~/s/display.asn</scene>
+				   </link_b>";
+	
+	
+	// now the items
+	/*
+	<item1>
+		<text101>1</text101>
+		<text102>freesat news</text102>
+		<link_s>
+			<id>index1001</id>
+			<datafile>~/index.xml</datafile>
+			<scene>~/s/index.asn</scene>
+		</link_s>
+	</item1>
+	*/
+
+	
+	// -- get the linkg XML if this is a subindex node --
+	// homeindex nodes do not have a back button.	
+	if( _get_ixtype($nodeid) != 0) // if not equal to homeindex node
+	{
+		$XML_string .= _get_index_linkg_xml($nodeid, $chid);
+	
+	}
+	
+	$i=1;
+	foreach($node_info as $nodeinfoval)
+	//for ($i=0;i<($index_num_items-1);$i++)
+	{
+		//dvr($i);
+		//dvr($nodeinfoval['node_ixtitle']);
+		$XML_string .= "\n\t\t\t\t <item$i>
+						<text101>$i</text101>
+						<text102>".$nodeinfoval['node_ixtitle']."</text102>
+						<link_s>
+							<id>"._create_label_by_nid($nodeinfoval['node_id'])."</id>
+							<datafile>".$nodeinfoval['node_datafile']."</datafile>
+							<scene>".$nodeinfoval['node_scene']."</scene>
+						</link_s>
+				   </item$i>\n";
+		
+		$i++;
+		
+	}	
+	
+	//echo "here !! -3<br/>";
+	
+	$XML_string .= "</$index_label_id>";
+
+	return $XML_string;
+}
+
+
+
+
+//===================================================================
+//
+//  S U B		H E L P E R		F U N C T I O N S
+//
+//===================================================================
+
+
+/**
+ * Implementation of _get_subpages($mainstring)
+ *
+ * counts number of rows.
+ * returns - an array, contianing xml and max rows.
+ */
+ 
+function _get_subpages($queryresult)
+{
+	$rows = 0;
+	while ($row = db_fetch_object($queryresult)) 
+	{    
+		$rows++;	 
+	}
+
+        $subpages_xml = array(
+            "subpagesxml"=>"<subpages>$rows</subpages>",
+            "totalpages"=>"$rows");
+        
+	//$subpages_xml = "<subpages>$rows</subpages>";
+   
+	return $subpages_xml;
+}
+
+
+/**
+ * Implementation of _get_subpagedata($query_result_record, $pagenum, $maxpages, $nodeid, $chid)
+ *
+ * makes the XML section for the dynamic content for the subpages.
+ * @return - an xml string.
+ 
+ * below is the format of the xml:
+ 
+		<subpage1>
+			<template>tmpl1</template>
+			<text101>Freesat News</text101>
+			<text102>BBC iPlayer & ITV Player</text102>
+			<text103>1 of 3</text103>
+			<text104>Next Page</text104>
+			<text105>Previous Page</text105>
+			<text106>body text for page 1</text106>
+			<img101>~/d_img/promo1.png</img101>
+			<img102>~/a_img/arrow_down.png</img102>
+			<img103>~/a_img/arrow_up.png</img103>
+		</subpage1> 
+ */
+ 
+function _get_subpagedata($query_result_record, $pagenum, $maxpages, $nodeid, $chid)
+{
+		$subpage_data_xml = '';
+        
+        //--------------- Get Data ------------------------
+       
+
+        //template
+        $templateid = $query_result_record->field_article_templ_type_value;
+
+        $template_label = "tmp".($templateid+1);
+          
+        // the main title for articles are in the heading column.
+        
+      /*  $get_title_query = "SELECT field_article_heading_value
+  							FROM content_type_article WHERE nid = %d and vid = %d";
+        $title_queryResult =  db_query($get_title_query, $nodeid, $view_id );
+        $record = db_fetch_object($title_queryResult);*/
+
+        //$text101 = $query_result_record->title;
+        $text101 = $query_result_record->field_article_heading_value;
+
+        // get rest of the text fields from content_type_article table       
+        $text102 = $query_result_record->field_article_heading2_value;
+        $text110 = $query_result_record->field_article_page_num_value;
+        $text106 = $query_result_record->field_article_body_value;
+
+        // populate the page num text label
+        if(empty($text110))
+        {
+        	if($maxpages>1)
+        	{
+        		$text110 = "$pagenum of $maxpages";        		
+        	}
+        	else
+        	{
+        		$text110 = "";
+        	}        	
+        }
+        
+        // populate the page number image.
+		if($maxpages>1)
+        {
+        	 $img101 = '~/a_img/arrows_more.png';      		
+        }
+        
+        /*
+        //derive dynamic values per subpage - depending on page num.
+        	switch ($pagenum)
+        	{
+	            case ($pagenum==$maxpages):
+	                //$text104 = '';
+	                //$text105 = 'Previous Page';
+	                //$img102 = '~/a_img/nothing.png';
+	                //$img103 = '~/a_img/arrow_up.png';
+	                break;
+	            case ($pagenum < $maxpages):
+	                //$text104 = 'Next Page';
+	                //$text105 = 'Previous Page';
+	                //$img102 = '~/a_img/arrow_down.png';
+	                //$img103 = '~/a_img/arrow_up.png';
+	                break;
+	            case ($pagenum == 1):
+	                //$text104 = 'Next Page';
+	                //$text105 = '';
+	                //$img102 = '~/a_img/arrow_down.png';
+	                //$img103 = '~/a_img/nothing.png';          	
+	                break;
+        	}     
+    
+		*/
+        
+       
+        //get the image filename
+        //files -> filename
+        $imgref_nid = $query_result_record->field_article_imgref_p1_nid;		
+                
+        if(!is_null($imgref_nid))
+        {          
+        	$img102 = "~/d_img/"._get_image_xml_string($chid, $imgref_nid);   
+        }
+        else // there is no proper promo image assigned so thus is nullyfied.
+        {
+            //$img101 = '~/a_img/nothing.png';
+            $img102 = '';
+        }
+
+        //-------------------------------------------------
+
+
+        //------- Form the final subpage XML ---------        
+        //--------------------------------------------
+		// -- start tag
+		$subpage_data_xml .= "\n\t\t<subpage$pagenum>\n";
+	
+        //-- form the XML content --        
+		// static parts (compulsory fields)
+		$subpage_data_xml .= "\t\t\t<template>$template_label</template>
+			<text101>$text101</text101>
+			<text102>$text102</text102>
+			<text106>$text106</text106>\n";
+		
+		// dynamic fields - if empty don't include;
+		if(!empty($text110)) // page numbers
+		{
+			$subpage_data_xml .= "\t\t\t<text110>$text110</text110>\n";
+		}
+		if(!empty($img101)) // arrows_more.png
+		{
+			$subpage_data_xml .= "\t\t\t<img101>$img101</img101>\n";
+		}
+		if(!empty($img102)) // promo.png
+		{
+			$subpage_data_xml .= "\t\t\t<img102>$img102</img102>\n";
+		}
+		
+			/*
+			<text103>$text103</text103>
+			<text104>$text104</text104>
+			<text105>$text105</text105>
+			<text106>$text106</text106>
+			<img101>$img101</img101>
+			<img102>$img102</img102>
+			<img103>$img103</img103>\n";
+			
+			*/
+
+	// end tag
+	$subpage_data_xml .= "\t\t</subpage$pagenum>";
+	//---------------------------------------------
+
+        //echo $subpage_data_xml;
+
+	return $subpage_data_xml;
+}
+
+/**
+ * Implementation of _get_linkg_xml
+ * 
+<link_g>
+        <pageid>index1001</pageid>
+        <datafile>~/index.xml</datafile>
+        <scene>~/s/index.asn</scene>
+</link_g>
+ * 
+ */
+
+function _get_article_linkg_xml($nodeid, $chid)
+{
+	$query = "SELECT field_article_mult_linkg_nid FROM {content_type_article_multiple} 
+	  						  WHERE nid = %d";
+	
+	$queryresult = db_query($query, $nodeid ) OR die("Unable to get field_article_mult_linkg_nid for nid=$nodeid");	
+	$record = db_fetch_object($queryresult);
+	
+	
+	// -- find out linkg - node+datafile+scene --
+	// empty linkg node ref means it will default to an index node.
+	if(empty($record->field_article_mult_linkg_nid))
+	{
+		// if linkg node hasn't been specified, it's going to be an index scene
+		// so check index scenes to see which index is referencing this specified node.
+		// must take care to check if index scenes are in the correct channelid.		
+		
+		$query = "SELECT COUNT(*) as cnt FROM {content_type_index} 
+					WHERE nid 
+					IN (SELECT nodeid FROM {tblchannelmap} WHERE channelid = %d AND nodetype = 'index_multiple') 
+					AND field_index_noderef_nid = %d";		
+		
+		$queryresult = db_query($query, $chid, $nodeid ) OR die("Unable to make linkg search query - count(*)");		
+		$record = db_fetch_object($queryresult);
+		$count  = $record->cnt;
+	
+		// if there's only one index node referencing this node.
+		// if there are more than 1 index node referencing this node then take the first one.
+		if($count > 0) 
+		{
+			$query = "SELECT nid, field_index_noderef_nid FROM content_type_index 
+					WHERE nid 
+					IN (SELECT nodeid FROM tblchannelmap WHERE channelid = %d AND nodetype = 'index_multiple') 
+					AND field_index_noderef_nid = %d ORDER BY vid";
+					
+			$queryresult = db_query($query, $chid, $nodeid ) OR die("Unable to make linkg search query");
+			
+			$record = db_fetch_object($queryresult);
+			
+			//-- get the index node thats referencing *this* node - this index node will be the back scene
+			$lnkg_node = $record->nid;			
+		}
+		else 
+		{
+			//die("no indexes referencing this node = $nodeid. user error, return NULL");			
+			// -- BUT check linkb node refs just incase --			 
+			
+			$query = "SELECT nid, field_index_mult_linkb_nid FROM content_type_index_multiple 
+					WHERE nid 
+					IN (SELECT nodeid FROM tblchannelmap WHERE channelid = %d AND nodetype = 'index_multiple') 
+					AND field_index_mult_linkb_nid = %d ORDER BY vid";
+			
+			$queryresult = db_query($query, $chid, $nodeid ) OR die("Unable to make linkg search query");
+			$record = db_fetch_object($queryresult);
+			
+			if(!empty($record->field_index_mult_linkb_nid))
+			{
+				//-- get the index node thats referencing *this* node - this index node will be the back scene
+				$lnkg_node = $record->field_index_mult_linkb_nid;			
+			}
+			else
+			{
+				// linkb noderef also returned no results =(	
+				// no indexes referencing this node. user error, return NULL !
+				return NULL;
+			}	
+		}		
+		/*
+		else
+		if ($count > 1) // more than one index refrencing this node.
+		{
+		}
+		*/
+	}
+	else // if user has specified a linkg node ref then use this.
+	{	
+		$lnkg_node = $record->field_article_mult_linkg_nid;	
+	}
+	
+	$nodetype = _get_nodetype($lnkg_node);
+	
+	switch($nodetype)
+	{
+		case "index_multiple" :
+		{				
+			//scene changes according to the indextype.
+			if(_get_ixtype($lnkg_node) == 0) // homeindex
+			{ $lnkg_scene = '~/s/homeindex.asn'; }
+			else
+			{ $lnkg_scene = '~/s/index.asn'; }
+			
+			$lnkg_datafile = '~/index.xml'; // static datafile xml for now.		
+			
+		}break;
+		
+		case "article_multiple" :
+		{			
+			$lnkg_scene = '~/s/display.asn'; 		
+			$lnkg_datafile = '~/data/data.xml';
+		
+		}break;
+		default:
+			//die("_get_linkg_xml:: unknown node type"); 
+			return NULL;
+		break;	
+	}
+	
+	
+	$XML = "\n\t\t<link_g>
+			<pageid>"._create_label_by_nid($lnkg_node)."</pageid>
+			<datafile>$lnkg_datafile</datafile>
+			<scene>$lnkg_scene</scene>
+		</link_g>\n";
+	
+	return $XML;
+
+}
+
+
+
+
+/**
+ * Implementation of _get_linkg_xml
+ * 
+<link_g>
+		<id>index1000</id>
+		<datafile>~/index.xml</datafile>
+		<scene>~/s/homeindex.asn</scene>
+</link_g>
+ * 
+ */
+
+function _get_index_linkg_xml($nodeid, $chid)
+{
+	$query = "SELECT field_index_mult_linkg_nid FROM {content_type_index_multiple} 
+	  						  WHERE nid = %d";
+	
+	$queryresult = db_query($query, $nodeid ) OR die("Unable to get field_index_mult_linkg_nid for nid=$nodeid");	
+	$record = db_fetch_object($queryresult);
+	
+	
+	// -- find out linkg - node+datafile+scene --
+	// empty linkg node ref means it will default to an index node - either home/subindex
+	if(empty($record->field_index_mult_linkg_nid))
+	{
+		// if linkg node hasn't been specified, it's going to be an index scene
+		// so check index scenes to see which index is referencing this specified node.
+		// must take care to check if index scenes are in the correct channelid.		
+		
+		$query = "SELECT COUNT(*) as cnt FROM {content_type_index}
+					WHERE nid 
+					IN (SELECT nodeid FROM {tblchannelmap} WHERE channelid = %d AND nodetype = 'index_multiple') 
+					AND field_index_noderef_nid = %d";
+		
+		$queryresult = db_query($query, $chid, $nodeid ) OR die("Unable to make linkg search query - count(*)");		
+		$record = db_fetch_object($queryresult);
+		$count  = $record->cnt;
+	
+		// if there's only one index node referencing this node or
+		// if there are more than 1 index node referencing this node then take the first one.
+		if($count > 0) 
+		{
+			$query = "SELECT nid, field_index_noderef_nid FROM content_type_index 
+					WHERE nid 
+					IN (SELECT nodeid FROM tblchannelmap WHERE channelid = %d AND nodetype = 'index_multiple') 
+					AND field_index_noderef_nid = %d ORDER BY vid";
+					
+			$queryresult = db_query($query, $chid, $nodeid ) OR die("Unable to make linkg search query");
+			
+			$record = db_fetch_object($queryresult);
+			
+			//-- get the index node thats referencing *this* node - this index node will be the back scene
+			$lnkg_node = $record->nid;			
+		}
+		else 
+		{
+			//die("no indexes referencing this node = $nodeid. user error, return NULL");			
+			// -- BUT check linkb node refs just incase --			 
+			
+			$query = "SELECT nid, field_index_mult_linkb_nid FROM content_type_index_multiple 
+					WHERE nid 
+					IN (SELECT nodeid FROM tblchannelmap WHERE channelid = %d AND nodetype = 'index_multiple') 
+					AND field_index_mult_linkb_nid = %d ORDER BY vid";
+			
+			$queryresult = db_query($query, $chid, $nodeid ) OR die("Unable to make linkg search query");
+			$record = db_fetch_object($queryresult);
+			
+			if(!empty($record->field_index_mult_linkb_nid))
+			{
+				//-- get the index node thats referencing *this* node - this index node will be the back scene
+				$lnkg_node = $record->field_index_mult_linkb_nid;			
+			}
+			else
+			{
+				// linkb noderef also returned no results =(	
+				// no indexes referencing this node. user error, return NULL !
+				return NULL;
+			}
+		}		
+		/*
+		else
+		if ($count > 1) // more than one index refrencing this node.
+		{
+		}
+		*/
+	}
+	else // if user has specified a linkg node ref then use this.
+	{	
+		$lnkg_node = $record->field_index_noderef_nid;
+	}
+	
+	$nodetype = _get_nodetype($lnkg_node);
+	
+	switch($nodetype)
+	{
+		case "index_multiple" :
+		{				
+			//scene changes according to the indextype.
+			if(_get_ixtype($lnkg_node) == 0) // homeindex
+			{ $lnkg_scene = '~/s/homeindex.asn'; }
+			else
+			{ $lnkg_scene = '~/s/index.asn'; }
+			
+			$lnkg_datafile = '~/index.xml'; // static datafile xml for now.		
+			
+		}break;
+		
+		case "article_multiple" :
+		{			
+			$lnkg_scene = '~/s/display.asn'; 		
+			$lnkg_datafile = '~/data/data.xml';
+		
+		}break;
+		default:
+			//die("_get_linkg_xml:: unknown node type"); 
+			return NULL;
+		break;	
+	}	
+	
+	$XML = "\n\t\t<link_g>
+			<id>"._create_label_by_nid($lnkg_node)."</id>
+			<datafile>$lnkg_datafile</datafile>
+			<scene>$lnkg_scene</scene>
+		</link_g>\n";
+	
+	return $XML;
+
+}
+
+
+/*
+ * Implementation of _get_image_xml_string()
+ * params - $chid, $imgref_nid
+ * This function queries the tblmhegassets for the 
+ * correct promo image slot name, and returns the formatted string.
+ */
+function _get_image_xml_string($chid, $imgref_nid)
+{
+	$query = "SELECT promo_slot FROM tblmhegassets WHERE channelid = %d AND imgref_nid = %d";
+	
+	$queryresult = db_query($query, $chid,  $imgref_nid) OR die("Unable to get promo_slot for imgref_nid=$imgref_nid on channel=$chid");
+	$record = db_fetch_object($queryresult);
+	
+	if(($record->promo_slot > 0) && ($record->promo_slot) <=5)
+	{
+		$image_name = "promo".$record->promo_slot.".png"; // eg: promo1.png
+	}
+	else
+	{
+		$image_name = NULL;
+	}
+	
+	return $image_name;	
+}
+
+
+
+/**
+ * gets the image filename by fid
+ * @return - $filename string.
+ */
+function _get_imagename_by_fid($fid)
+{
+	if(empty($fid))
+	{
+		return "nothing.png";
+	}
+	else
+	{
+		$query = "SELECT * FROM {files} WHERE fid = %d";
+		$queryresult = db_query($query, $fid ) OR die("Unable to get filename for fid=$fid");	
+	    $record = db_fetch_object($queryresult);
+	    
+	    $filename = $record->filename;
+	    
+	    return $filename;	
+	}
+	
+}
+
+
+/**
+ * gets the number of items for an index node.
+ * @return - $arr_noderefs , an array containing the node refrences
+ */
+function _get_index_ref_nodes($nodeid)
+{
+	//$query = "SELECT COUNT(*) FROM {content_type_index} WHERE nid=%d";
+	$query = "SELECT field_index_noderef_nid FROM {content_type_index} WHERE nid=%d";	
+	$queryresult = db_query($query, $nodeid ) OR die("Unable to get noderefs for nid=$nodeid");
+	
+	$items = 0;
+	
+	$arr_noderef = array();
+	
+	while ($row = db_fetch_object($queryresult)) 
+	{    
+		$arr_noderefs[$items] = $row->field_index_noderef_nid;
+		$items++;		
+	}	
+	return $arr_noderefs;		 
+}
+
+
+/**
+ * gets the index title for given nodeid.
+ * @return - $arr_noderefs , an array containing the node refrences
+ */
+function _get_indextitle_by_nid($nodeid)
+{
+	// get index title based on node type
+	if(_get_nodetype($nodeid) == "index_multiple")
+	{
+		//$query = "SELECT COUNT(*) FROM {content_type_index} WHERE nid=%d";
+		$query = "SELECT field_index_mult_ixtitle_value FROM {content_type_index_multiple} WHERE nid = %d";
+		$queryresult = db_query($query, $nodeid ) OR die("Unable to get index title for nid=$nodeid");
+		$record = db_fetch_object($queryresult);	
+		
+		return $record->field_index_mult_ixtitle_value;
+	}
+	else
+	{
+		$query = "SELECT field_article_mult_ixtitle_value FROM {content_type_article_multiple} WHERE nid=%d";
+		$queryresult = db_query($query, $nodeid ) OR die("Unable to get index title for nid=$nodeid");
+		$record = db_fetch_object($queryresult);	
+		
+		return $record->field_article_mult_ixtitle_value;
+	}			 
+}
+
+
+/**
+ * create label id for a given node - index/article
+ * @return - a label string of the format <p_xx> or <i_xx>
+ */
+function _create_label_by_nid($nodeid)
+{
+	//create label according to nodetype	
+	if(_get_nodetype($nodeid) == 'index_multiple')	
+	{	
+		if(_get_ixtype($nodeid)==0) //homeindex
+		{
+			$label = "index1000"; 	
+		}
+		else // subindex
+		{
+			$label = "index$nodeid"; 	
+		}		
+	}
+	else 
+	if(_get_nodetype($nodeid) == 'article_multiple')
+	{ 	
+		$label = "page$nodeid"; 	
+	}
+	
+	return $label;
+}
+
+
+/**
+ * get index type of a index_multiple node
+ * @return - index node type (0|homeindex, 1|subindex)
+ */
+function _get_ixtype($nodeid)
+{
+	$query = "SELECT field_index_mult_ixtype_value FROM {content_type_index_multiple} WHERE nid = %d";
+	$queryresult = db_query($query, $nodeid ) OR die("Unable to get indextype for nid=$nodeid");
+	$record = db_fetch_object($queryresult);
+	
+	return $record->field_index_mult_ixtype_value;
+}
+
+
+/**
+ * get inode type of a given nodeid
+ * @return - node type ("article_multiple", "index_multiple")
+ */
+function _get_nodetype($nodeid)
+{
+	if($nodeid == 0)
+	{
+		die("Error: _get_nodetype - nodeid =  $nodeid");
+	}
+	
+	$query = "SELECT type FROM {node} WHERE nid = %d";
+	$queryresult = db_query($query, $nodeid ) OR die("Unable to get nodetype for nid=$nodeid");
+	$record = db_fetch_object($queryresult);
+	
+	return $record->type;
+}
+
+
+/**
+ * get node title of a given node.
+ * @return - node title string.
+ */
+function _get_nodetitle($nodeid)
+{
+	if($nodeid == 0)
+	{
+		die("Error: _get_nodetitle - nodeid =  $nodeid");
+	}
+	
+	$query = "SELECT title FROM {node} WHERE nid = %d";
+	$queryresult = db_query($query, $nodeid ) OR die("Unable to get nodetype for nid=$nodeid");
+	$record = db_fetch_object($queryresult);
+	
+	return $record->title;
+}
+
+
+
+
+
+/**
+ * search the tblchannelmap table for a node for a given channelid
+ * @return - num of rows that the node exists for a given channelid
+ */
+function _does_node_exist_on_channel($nodeid, $chid)
+{
+	$query = "SELECT COUNT(*) as cnt FROM {tblchannelmap} WHERE channelid=%d AND nodeid =%d";
+	$queryresult = db_query($query,$chid, $nodeid ) OR die("Unable to get nodetype for nid=$nodeid and chid=$chid");
+	$object = db_fetch_object($queryresult);	
+	
+	
+	//$count = $object["COUNT(*)"];
+	$count = $object->cnt;
+	
+	return $count;
+
+}
+
+
+function _string_to_mheghex_convert($plain_text)
+{
+	// adding header - this is the UTF8 header it's what makes the file UTF8.
+	$header = "\xEF\xBB\xBF";
+	$plain_text = $header.$plain_text;	
+	
+	
+	$regex_pattern = "/<colour \"([^\"]*)\">(.*)<\/colour>/iU";
+	
+	$num_matches = preg_match_all($regex_pattern,$plain_text,$matches, PREG_PATTERN_ORDER);
+	
+	if( ($num_matches !=0) && ($num_matches != false) ) // meaning if there are matches found do conversion.
+	{
+		//print_r($plain_text);		
+		//print_r($matches);
+		
+		// start the replacing of the colour tags
+		$removetags = str_replace( "<colour \"", "\x1B\x43\x04", $plain_text); // removes the [<colour "] bits
+		$removetags2 = str_replace( "\">", "", $removetags); // removes the [">] bits
+		$removetags3 = str_replace( "</colour>", "\x1B\x63", $removetags2); // removes the [</colour>] bits
+		
+		
+		// now replace the colour tags' attributes		
+		$result = $removetags3;
+		
+		foreach( $matches[1] as $match )
+		{
+			//print_r ( $match);
+			$hex_arr = explode ( "=" , $match);
+						
+			//print_r($hex_arr);
+			
+			//print_r(base_convert(base_convert($hex_arr[2], 16, 2), 2, 16));
+			
+			$hex_escaped = pack("H*", base_convert(base_convert($hex_arr[1], 16, 2), 2, 16)	);
+			$hex_escaped .= pack("H*", base_convert(base_convert($hex_arr[2], 16, 2), 2, 16));
+			$hex_escaped .= pack("H*", base_convert(base_convert($hex_arr[3], 16, 2), 2, 16));
+			$hex_escaped .= pack("H*", base_convert(base_convert($hex_arr[4], 16, 2), 2, 16));
+			
+			//pack("ccc", 0xE2, 0x99, 0xA6)
+			
+			//$newhex = str_replace( "=", "\x", $match);	
+			$new = str_replace( $match, $hex_escaped, $result );
+			
+			//print_r ($temp);
+	
+			$result = $new;
+			
+		}
+		
+		//$result = utf8_encode($result);		
+			
+		return $result;
+	
+	}
+	else
+	{
+		return $plain_text;
+		
+	} 
+
+}
+
+
+
+
+

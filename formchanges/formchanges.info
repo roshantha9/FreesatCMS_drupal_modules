@@ -1,0 +1,4 @@
+; $Id$
+name = Form Changes
+description = This module is used to do custom changes to the forms in drupal, to behave the way I want.
+core = 6.x

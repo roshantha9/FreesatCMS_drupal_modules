@@ -1,0 +1,1038 @@
+<?php
+// $Id$
+
+
+
+/**
+ * Display help and module information
+ * @param path which path of the site we're displaying help
+ * @param arg array that holds the current path as would be returned from arg() function
+ * @return help text for the path
+ */
+function channelmapper_help($path, $arg) {
+	$output = '';  //declare your output variable
+		switch ($path) {
+			case "admin/help#channelmapper":
+				$output = '<p>'.  t("This module is used for channel mapping functions . adding/deleting/editing a channel-node map relationship") .'</p>';
+				break;
+		}
+		return $output;
+} // function channelmapper_help
+
+
+
+
+/**
+ * Valid permissions for this module
+ * @return array An array of valid permissions for the channelmapper module
+ */
+function channelmapper_perm() {
+return array('access channelmapper content', 'administer channelmapper', 'create channelmapper');
+} // function channelmapper_perm()
+
+
+
+/**
+ * Implementation of hook_block
+ * @param string $op one of "list", "view", "save" and "configure"
+ * @param integer $delta code to identify the block
+ * @param array $edit only for "save" operation
+ **/
+function channelmapper_block($op = 'list', $delta = 0, $edit = array()) {
+
+
+	// set up the block
+	$block = array();
+	$block['subject'] = 'Channel Mapper';
+	$block['content'] = $block_content;
+	
+	return $block;
+
+}
+
+// function channelmapper_block
+
+
+
+/*
+ * Menu section for Channel mapper
+ */
+
+function channelmapper_menu() {
+
+	$items = array();
+	
+	//this was created earlier in tutorial 7.
+	$items['admin/settings/channelmapper'] = array(
+	    'title' => 'Channel Mapper Admin Page',
+	    'description' => 'Description of your channel mapper settings page',
+	    'page callback' => 'drupal_get_form',
+	    'page arguments' => array('channelmapper_admin'),
+	    'access arguments' => array('access administration pages'),
+	    'type' => MENU_NORMAL_ITEM,
+	);
+	
+	//----- FORMS ----
+	
+	// form to add node to channel - gets and passes userinput
+	$items['form_add_node_to_channel'] = array(
+	    'title' => 'Modify Channel Map',
+		//'description' => 'Use this form to Add/Delete a Node to/from a Channel',
+	    'page callback' => 'clbk_form_add_node_to_channel',
+	    'access arguments' => array('access channelmapper content'),
+	    'type' => MENU_CALLBACK
+		);
+
+
+	// ------ REPORT PAGES ----
+	
+	// this does the processing and produces report.
+	$items['report_add_node_to_channel'] = array(
+	    'title' => 'Channel Map Report',
+		//'description' => 'Bellow is a summary of the actions performed on the Channel Map Table',
+	    'page callback' => 'clbk_report_add_node_to_channel',
+	    'access arguments' => array('access channelmapper content'),
+	    'type' => MENU_CALLBACK
+	);
+
+	return $items;
+}
+
+
+
+
+//===================================================================
+//
+//  C U S T O M   D E F I N E D   F O R M S
+//
+//===================================================================
+
+// ****************** Form Add Node to Channel ******************//
+// Lets the user add/delete a node to/from a channel.
+// **************************************************************//
+
+/*
+ * Implementation of channelmapper_form_add_channel
+ * Shows a Form where the user inputs the NodeID and the XML filename,
+ * to generate the MHEG XML file
+ */
+
+function channelmapper_form_add_channel($form_state) {
+
+	$form['addnode'] = array(
+	  '#type' => 'fieldset',
+	  //'#title' => t(''),
+	  //'#weight' => 5,
+	  '#collapsible' => FALSE,
+	  '#collapsed' => FALSE,
+	  '#description' => t('IMPORTANT ! At any given time there can be only 1 homeindex linked to a
+	  						particular ChannelID. There is a one-to-one mappning between Homeindexes and Channels.
+	  						By entering a new homeindex to a already linked Channel, the Old Link with the old homeindex
+	  						will be broken, and your new one will be formed.'),
+	);
+	
+	$form['addnode']['node_id'] = array(
+	    '#type' => 'textfield',
+	    '#title' => t('Node ID'),
+	    '#size' => 3,
+	    '#maxlength' => 5,
+	    '#description' => t('Enter the Node ID you want connect to a channel. It *must* be a HOMEINDEX node.'),
+	);
+	
+	
+	$channel_list = _get_channel_list();
+	/*
+	foreach($ch_arr as $ch_info)
+	{
+		$nid = $ch_info['nid'];
+		$label = $ch_info['label'];
+		$channel_list[$nid] = $label;	
+	}
+	*/
+		
+	//$channel_list = drupal_map_assoc(array("NONE"=>0, "Live"=>1, "Stagging"=>2));
+	
+	$form['addnode']['ch_id'] = array(
+	    '#type' => 'select',
+	    '#title' => t('Select a Channel:'),
+	    '#default_value' => "None",
+	    '#options' => $channel_list,
+	    '#description' => t('Select the Channel you want to connect the Node to.'),
+	);
+	
+	
+	$form['addnode']['submit_add'] = array(
+			'#type' => 'submit', 
+			'#value' => t('Add Node'),
+			'#submit' => array('channelmapper_form_add_node_to_channel_submit'),
+			'#validate' => array('channelmapper_form_add_node_to_channel_validate')		
+	);
+	
+	
+	$form['addnode']['submit_delete'] = array(
+			'#type' => 'submit', 
+			'#value' => t('Delete Node'),
+			'#submit' => array('channelmapper_form_del_node_from_channel_submit'),
+			'#validate' => array('channelmapper_form_del_node_to_channel_validate')		
+	);
+
+return $form;
+}
+
+/*
+ * Implementation of channelmapper_form_add_channel_validate
+ * Checks if the entered NodeID exists, and if the filename is valid.
+ */
+function channelmapper_form_add_node_to_channel_validate($form, &$form_state) {
+
+	//dpr($form_state['values']);
+	if ($form_state['values']['node_id'] == '' || $form_state['values']['ch_id'] == '')
+	{
+		form_set_error('', t('Please fill in all the fields !'));
+	}
+	else
+	{
+		// get all node ids of index_multiple where ixtype is "homeindex" (homeindex=0)
+		$query = "SELECT nid, field_index_mult_heading_value
+		                  FROM content_type_index_multiple
+		                  WHERE field_index_mult_ixtype_value = 0";
+		
+		$queryresult = db_query($query);
+		
+		$flag = false;
+		while($record = db_fetch_object($queryresult))
+		{
+			if($form_state['values']['node_id'] == $record->nid)
+			{
+				$flag = true;
+			}
+		}
+	
+		if($flag == false)
+		{
+			form_set_error('', t('NodeID does not Exist or is a Subindex node! Please Enter a Valid Homeindex type Node ID'));
+		}
+	}
+}
+
+/*
+ * Implementation of channelmapper_form_add_channel_validate
+ * Checks if the entered NodeID exists, and if the filename is valid.
+ */
+function channelmapper_form_del_node_to_channel_validate($form, &$form_state) {
+
+	if ($form_state['values']['node_id'] == '' || $form_state['values']['ch_id'] == '')
+	{
+		form_set_error('', t('Please fill in all the fields !'));
+	}
+	else
+	{
+			
+		// get all node ids of index_multiple where ixtype is "homeindex" (homeindex=0)
+		$query = "SELECT nid, field_index_mult_heading_value
+		                  FROM content_type_index_multiple
+		                  WHERE field_index_mult_ixtype_value = 0";
+		
+		$queryresult = db_query($query);
+		
+		$flag = false;
+		while($record = db_fetch_object($queryresult))
+		{
+			if($form_state['values']['node_id'] == $record->nid)
+			{
+				$flag = true;
+			}
+		}
+	
+		if($flag == false)
+		{
+			form_set_error('', t('NodeID does not Exist or is a Subindex node! Please Enter a Valid Homeindex type Node ID'));
+		}
+		else
+		{		
+			$nodeid=$form_state['values']['node_id'];
+			$chid=$form_state['values']['ch_id'];
+			
+			// get all node ids of index_multiple where ixtype is "homeindex" (homeindex=0)
+			$query = "SELECT COUNT(*) AS cnt FROM {tblchannelmap} WHERE nodeid=%d AND channelid=%d";
+			
+			$queryresult = db_query($query,$nodeid,$chid);
+			$record = db_fetch_object($queryresult);
+			
+			if(($record->cnt)<0)
+			{
+				form_set_error('', t('NodeID does not Exist on Channel Map Table! Please Enter a Valid Node ID'));
+			}		
+		
+		}	
+	}
+}
+
+
+
+/*
+ * Implementation of :
+ * - channelmapper_form_add_to_channel_submit = upon submission, adds the specified node to the tblchannelmap
+ * - channelmapper_form_delete_from_channel_submit = upon submission, deletes the specified node from the tblchannelmap
+ */
+function channelmapper_form_add_node_to_channel_submit($form, &$form_state) {
+
+	//drupal_set_message(t('Your form has been saved.'));
+	
+	$query_string = 'nodeid='.$form_state['values']['node_id'].'&chid='.$form_state['values']['ch_id'].'&action=add';
+	
+	drupal_goto($path = 'report_add_node_to_channel', $query = $query_string  , $fragment = NULL, $http_response_code = 302);
+
+}
+
+function channelmapper_form_del_node_from_channel_submit($form, &$form_state) {
+
+	//drupal_set_message(t('Your form has been saved.'));
+	
+	$query_string = 'nodeid='.$form_state['values']['node_id'].'&chid='.$form_state['values']['ch_id'].'&action=del';
+	
+	drupal_goto($path = 'report_add_node_to_channel', $query = $query_string  , $fragment = NULL, $http_response_code = 302);
+
+}
+// *******************************************************************************************
+
+
+//===================================================================
+//
+//  V I E W S	A P I	H O O K S
+//
+//===================================================================
+
+/**
+ * Implementation of hook_views_api().
+ *
+ * This tells drupal that there is Views integration file named 
+ * channelmapper.views.inc 
+ */
+function channelmapper_views_api() {
+  // Note that you can include 'path' in this array so that your views.inc 
+  // file can be stored in a different location.
+  return array(
+    'api' => 2.0
+  );
+}
+
+
+
+
+
+
+
+
+//===================================================================
+//
+//  C A L L B A C K S
+//
+//===================================================================
+
+//********* FORM Callbacks *********
+
+function clbk_form_add_node_to_channel() {
+return drupal_get_form('channelmapper_form_add_channel');
+}
+
+
+//*************************************
+
+//********* REPORT Callbacks *********
+function clbk_report_add_node_to_channel() {
+
+	$nodeid = $_GET['nodeid'];
+	$channelid = $_GET['chid'];
+	$action = $_GET['action'];
+	
+	global $total_nodes_inserted;
+	global $total_nodes_deleted;
+	global $chmap_report_add;
+	global $chmap_report_del;
+	$chmap_report_add = array();
+	$chmap_report_del = array();
+	
+	$total_nodes_inserted = 0;
+	$total_nodes_deleted = 0;
+	
+	// --- IMPORTANT ! -----//
+	// at any given time there can be only 1 homeindex linked to a particular ChannelID.
+	// i.e - A channelID may not have more than one homeindex linked to it.
+	// so before we add a root homeindex node to the channeID, we have to check if this
+	// channel is available or not. 
+	// if channel is not available we will FLUSH is and then populate it.
+	
+	if(_channelid_exists($channelid))
+	{
+		// channelid exists on tblchannelmap, so we have to remove this first.		
+		_flush_channelmap_by_chid($channelid);	
+	}	
+	
+	//-- now carry on as normal --//	
+	
+	// --  find the node type --
+	$query = "select type from {node} where nid=%d";
+	$queryresult = db_query($query, $nodeid);
+	
+	$object = db_fetch_object($queryresult);
+	
+	$nodetype = $object->type;
+
+	switch($action)
+	{
+		case 'add':
+			
+			if(_node_exists_on_channel($nodeid, $channelid) == false)
+			{
+				add_node_by_nodetype($nodeid, $channelid, $nodetype);
+				$page_content = "<br/><br/>Nodes Inserted = $total_nodes_inserted";			
+				$page_content .= _get_html_report("add");
+			}
+			else
+			{
+				// delete first then add. this basically overwrites. 
+				delete_node_by_nodetype($nodeid, $channelid, $nodetype);
+				
+				add_node_by_nodetype($nodeid, $channelid, $nodetype);
+				$page_content = "<br/><br/>Nodes Inserted = $total_nodes_inserted";			
+				$page_content .= _get_html_report("add");			
+			}	
+			
+			
+			//dvm($chmap_report_add);
+	
+			break;
+		 
+		case 'del':
+			delete_node_by_nodetype($nodeid, $channelid, $nodetype);
+			$page_content = "<br/><br/>Nodes Deleted = $total_nodes_deleted";
+			$page_content .= _get_html_report("del");
+		
+		default: break;
+	 
+	}
+
+//dvm($object);
+
+return $page_content;
+
+}
+
+
+//*******************************************************************
+
+//===================================================================
+//
+//  H E L P E R  F U N C T I O N S
+//
+//===================================================================
+
+/*
+ * Recursively traverses the node tree and adds each parent + child to tblchannelmap
+ */
+
+function add_node_by_nodetype($nodeid, $chid, $nodetype)
+{
+	switch($nodetype)
+	{
+	
+		//============ NODE TYPE = INDEX_MULTIPLE =============
+		case "index_multiple":
+		{
+			//find out if homeindex or subindex
+			$query = "SELECT field_index_mult_ixtype_value FROM {content_type_index_multiple} WHERE nid=%d";
+			$queryresult = db_query($query, $nodeid) OR die("Unable to get field_index_mult_ixtype_value for nid=$nodeid");
+			$object = db_fetch_object($queryresult);
+			
+			$ixtype = $object->field_index_mult_ixtype_value;
+		
+		
+			switch($ixtype)
+			{
+				// ---- if it's a [homeindex]----
+				case 0:
+				{
+					//first add homeindex into channelmap table
+					_add_node_to_channel($nodeid, $chid, $nodetype);
+					
+					//add the linkb node
+					_add_index_linkb($nodeid, $chid);
+					
+					//get all nodereferences
+					$query = "SELECT field_index_noderef_nid FROM content_type_index WHERE nid = %d ORDER BY vid";
+					$queryresult = db_query($query, $nodeid) OR die("Unable to get field_index_noderef_nid for nid=$nodeid");
+					
+					//loop through each node ref recursively.
+					while($record = db_fetch_object($queryresult))
+					{
+						$result_nid = $record->field_index_noderef_nid;
+						$result_ntype = _get_node_type($record->field_index_noderef_nid);
+						
+						//recursive function call
+						add_node_by_nodetype($result_nid, $chid, $result_ntype);
+					}
+				
+				}break;
+				
+				// ---- if it's a [subindex] ----
+				case 1:
+				{
+					//first add subindex into channelmap table
+					_add_node_to_channel($nodeid, $chid, $nodetype);
+					
+					//add the linkb node
+					_add_index_linkb($nodeid, $chid);
+					
+					//get all nodereferences
+					$query = "SELECT field_index_noderef_nid FROM content_type_index WHERE nid = %d ORDER BY vid";
+					$queryresult = db_query($query, $nodeid);
+					
+					//loop through each node ref recursively.
+					while($record = db_fetch_object($queryresult))
+					{
+						$result_nid = $record->field_index_noderef_nid;
+						$result_ntype = _get_node_type($record->field_index_noderef_nid);
+						
+						//recursive function call
+						add_node_by_nodetype($result_nid, $chid, $result_ntype);
+					}
+				
+				}break;
+				
+				// unknown index type
+				default:
+					die("Error: Unknown index_type : $ixtype");
+					break;
+			}
+			break;
+			
+		}
+	
+		//============= NODE TYPE = ARTICLE_MULTIPLE ==================
+	
+	
+		// enter into channeltbl.
+		case "article_multiple":
+		{
+			// article_multiple doesn't have child nodes so just add to table
+			_add_node_to_channel($nodeid, $chid, $nodetype);
+	
+			break;
+		}
+	
+	
+		// do nothing
+		case "article":
+		{ break; }
+	 
+		// do nothing
+		case "index":
+		{ break; }
+	
+		default: break;
+	
+	}
+
+}
+
+
+/*
+ * Recursively traverses the node tree and deletes the specified
+ * parent + child from tblchannelmap
+ */
+
+function delete_node_by_nodetype($nodeid, $chid, $nodetype)
+{
+	switch($nodetype)
+	{
+	
+		//---------- INDEX TYPE = INDEX_MULTIPLE --------------
+		case "index_multiple":
+		{
+			//find out if indextype homeindex or subindex
+			$query = "SELECT field_index_mult_ixtype_value FROM {content_type_index_multiple} WHERE nid=%d";
+			$queryresult = db_query($query, $nodeid) OR die("Unable to get field_index_mult_ixtype_value for nid=$nodeid");
+			$object = db_fetch_object($queryresult);
+			
+			$ixtype = $object->field_index_mult_ixtype_value;
+			
+			switch($ixtype)
+			{
+				// ---- if it's a [homeindex]----
+				case 0:
+				{
+					//first delete homeindex from channelmap table
+					_delete_node_from_channel($nodeid, $chid);
+					
+					//delete linkb node
+					_delete_index_linkb($nodeid, $chid);
+					
+					//get all nodereferences
+					$query = "SELECT field_index_noderef_nid FROM content_type_index WHERE nid = %d ORDER BY vid";
+					$queryresult = db_query($query, $nodeid) OR die("Unable to get field_index_noderef_nid for nid=$nodeid");
+					
+					//loop through each node ref recursively.
+					while($record = db_fetch_object($queryresult))
+					{
+						$result_nid = $record->field_index_noderef_nid;
+						$result_ntype = _get_node_type($record->field_index_noderef_nid);
+						
+						//recursive function call
+						delete_node_by_nodetype($result_nid, $chid, $result_ntype);
+					}
+				
+				}break;
+				
+				// ---- if it's a [subindex] ----
+				case 1:
+				{
+					//first delete subindex from channelmap table
+					_delete_node_from_channel($nodeid, $chid);
+					
+					//delete linkb node
+					_delete_index_linkb($nodeid, $chid);
+					
+					//get all nodereferences
+					$query = "SELECT field_index_noderef_nid FROM content_type_index WHERE nid = %d ORDER BY vid";
+					$queryresult = db_query($query, $nodeid);
+					
+					//loop through each node ref recursively.
+					while($record = db_fetch_object($queryresult))
+					{
+						$result_nid = $record->field_index_noderef_nid;
+						$result_ntype = _get_node_type($record->field_index_noderef_nid);
+						
+						//recursive function call
+						delete_node_by_nodetype($result_nid, $chid, $result_ntype);
+					}
+				
+				}break;
+				
+				// unknown index type
+				default:
+					die("Error: Unknown index_type : $ixtype");
+				break;
+			}
+			break;
+		}
+		
+		//-----------------------------------------
+		
+		
+		// enter into channeltbl.
+		case "article_multiple":
+		{
+			// article_multiple doesn't have child nodes so just delete from tbl
+			_delete_node_from_channel($nodeid, $chid);
+		
+			break;
+		}
+		
+		
+		// do nothing
+		case "article":
+		{ break; }
+		 
+		// do nothing
+		case "index":
+		{ break; }
+		
+		default: break;
+	
+	}
+
+
+}
+
+
+
+
+/*
+ * Checks if node already exists in tblchannelmap for that particular channelid
+ * if not it adds it.
+ */
+
+function _add_node_to_channel($nodeid, $chid, $nodetype)
+{
+	if($nodeid != 0)
+	{
+		global $total_nodes_inserted;
+		global $chmap_report_add;
+
+		$query = "SELECT COUNT(*) as rec_count FROM {tblchannelmap} WHERE channelid=%d and nodeid=%d";
+		$queryresult = db_query($query, $chid, $nodeid);
+		$object = db_fetch_object($queryresult);
+	
+		//dvm($object);
+		
+		$count = $object->rec_count;
+		
+		
+		//$count =1;
+		// the following var is used to keep track of how many records were inserted into table
+		$num_rows_affected = 0;
+		
+		// only enter into table if the record does not exist - avoid duplication
+		if($count == 0)
+		{
+		//eg: INSERT INTO tblchannelmap values 'iChannelID', 'iNodeID', 'sNodeType'
+		
+			$query = "INSERT INTO {tblchannelmap}(channelid, nodeid, nodetype) values (%d, %d, '%s')";
+			$queryresult = db_query($query, $chid, $nodeid, $nodetype) OR die("Error: Unable to insert [ $nodeid ] to tblchannelmap");
+			$num_rows_affected =  db_affected_rows();
+			
+			// -- populate report array --
+			if($num_rows_affected > 0)
+			{
+				array_push($chmap_report_add, $nodeid);
+			}		
+			
+		}
+		else
+		{
+			//die("Error: Node [$nodeid] already exists in tblchannelmap for this channelid.");
+			return 0;
+		}
+		
+		//add this to the global total
+		$total_nodes_inserted = $total_nodes_inserted + $num_rows_affected;
+		
+		return $num_rows_affected;		
+	}	
+}
+
+
+
+/*
+ * Deletes the specified node with the specified channelid from tblchannelmap
+ */
+
+function _delete_node_from_channel($nodeid, $chid)
+{
+	global $total_nodes_deleted;
+	global $chmap_report_del;
+	
+	$num_rows_affected = 0;
+	//$rows_before = _count_tblchannelmap();
+	//echo "_delete_node_from_channel : here 1\n";
+	
+	$num_rows_affected =  db_affected_rows();
+	$query = "DELETE FROM {tblchannelmap} WHERE channelid = %d AND nodeid = %d";	
+	$queryresult = db_query($query, $chid, $nodeid);
+	
+	//$rows_after = _count_tblchannelmap();
+	
+	//$num_rows_affected = $rows_before - $rows_after;
+	
+	//echo "_delete_node_from_channel : here 2 ->".$num_rows_affected;
+	
+	// -- populate report array --
+	if($num_rows_affected > 0)
+	{
+		//echo "_delete_node_from_channel : here 3\n";
+		array_push($chmap_report_del, $nodeid);	
+	}		
+	
+	//add this to the global total
+	$total_nodes_deleted = $total_nodes_deleted + $num_rows_affected;
+	
+	return $num_rows_affected;
+}
+
+/*
+ * returns a count of tblchannelmap
+ */
+
+function _count_tblchannelmap($chid)
+{
+	if($chid == -1) // show full count
+	{
+		$query = "SELECT COUNT(*) AS cnt FROM {tblchannelmap}";	
+		$queryresult = db_query($query);
+		$object = db_fetch_object($queryresult);
+	
+    	$count = $object->cnt;
+	
+	}
+	else
+	if($chid > 0)
+	{
+		$query = "SELECT COUNT(*) AS cnt FROM {tblchannelmap} WHERE channelid = %d";	
+		$queryresult = db_query($query, $chid);
+		$object = db_fetch_object($queryresult);
+	
+    	$count = $object->cnt;
+	}
+	
+	return $count;
+}
+
+
+/*
+ * Searches the {node} table and gets the nodetype for a given nid
+ */
+function _get_node_type($nodeid)
+{
+
+	$query = "SELECT type FROM {node} WHERE nid=%d";
+	$queryresult = db_query($query, $nodeid) OR die("Unable to get 'type' for nid - $nodeid");
+	$object = db_fetch_object($queryresult);
+	
+	$node_type = $object->type;
+	
+	return $node_type;
+}
+
+
+/*
+ * Add node linked to the blue button of a index node.
+ */
+function _add_index_linkb($nodeid, $chid)
+{
+	if(_get_node_type($nodeid) == "index_multiple")
+	{
+		$query = "SELECT field_index_mult_linkb_nid FROM {content_type_index_multiple} WHERE nid = %d;";
+		$queryresult = db_query($query, $nodeid) OR die("Unable to get linkb noderef for node =$nodeid");
+		$record = db_fetch_object($queryresult);
+		
+		$linkbnodeid= $record->field_index_mult_linkb_nid;
+		
+		//dvm($linkbnodeid);
+		
+		if(!empty($linkbnodeid))
+		{
+			_add_node_to_channel($linkbnodeid, $chid, _get_node_type($linkbnodeid));
+		}					
+	}
+}
+
+
+
+/*
+ * Delete node linked to the blue button of index node.
+ * 
+ */
+function _delete_index_linkb($nodeid,$chid)
+{
+	if(_get_node_type($nodeid) == "index_multiple")
+	{
+		$query = "SELECT field_index_mult_linkb_nid FROM {content_type_index_multiple} WHERE nid = %d;";
+		$queryresult = db_query($query, $nodeid);
+		$record = db_fetch_object($queryresult);
+		
+		$linkbnodeid= $record->field_index_mult_linkb_nid;
+		
+		//dvm($linkbnodeid);
+		
+		if(!empty($linkbnodeid))
+		{
+			_delete_node_from_channel($linkbnodeid, $chid, _get_node_type($linkbnodeid));			
+			
+		}					
+	}
+
+
+}
+
+
+
+/*
+ * Implementation of _report_channelmap
+ * listing of node additions of deletions into/from the tblchannelmap
+ * 
+ * In the following format:
+ * 
+	 <table>
+	    <tbody>
+	        <tr>
+	            <th valign="top">Heading One</th>
+	            <th valign="top">Heading Two</th>
+	            <th valign="top">Heading Three</th>
+	        </tr>
+	        <tr>
+	            <td valign="top">Data One-One</td>
+	            <td valign="top">Data One-Two</td>
+	            <td valign="top">Data One-Three</td>
+	        </tr>
+	        <tr>
+	            <td valign="top">Data Two-One</td>
+	            <td valign="top">Data Two-Two</td>
+	            <td valign="top">Data Two-Three</td>
+	        </tr>
+	    </tbody>
+	</table>
+
+ */
+
+function _get_html_report($action)
+{
+	global $chmap_report_add;
+	global $chmap_report_del;
+	 
+	if($action=="add")
+	{
+		
+		$html = "<br/>The Following Nodes were <u>ADDED</u> : <br/><br/>"; 
+	
+		$html .= "<table><tbody>";
+
+		$html .='<tr>
+	            <th valign="top">Nid</th>
+	            <th valign="top">Type</th>
+	            <th valign="top">Title</th>
+	        </tr>';
+		
+		foreach($chmap_report_add as $nid)
+		{
+			$html .= "<tr>";
+			$html .= '<td valign="top">'.$nid.'&nbsp;&nbsp;&nbsp;</td>';
+			$html .= '<td valign="top">'._get_node_type($nid).'&nbsp;&nbsp;&nbsp;&nbsp;</td>';
+			$html .= '<td valign="top">'._get_node_title($nid).'</td>';
+			$html .= "</tr>";
+		}
+		
+		$html .= "</tbody></table>";
+		$html .= "<br/><br/><br/>";
+	}
+	else
+	if($action=="del")
+	{
+		$html = "<br/>The Following Nodes were <u>DELETED</u> : <br/><br/>"; 
+	
+		$html .= "<table><tbody>";
+
+		$html .='<tr>
+	            <th valign="top">Nid</th>
+	            <th valign="top">Type</th>
+	            <th valign="top">Title</th>
+	        </tr>';
+		
+		foreach($chmap_report_del as $nid)
+		{
+			$html .= "<tr>";
+			$html .= '<td valign="top">'.$nid.'&nbsp;&nbsp;&nbsp;</td>';
+			$html .= '<td valign="top">'._get_node_type($nid).'&nbsp;&nbsp;&nbsp;&nbsp;</td>';
+			$html .= '<td valign="top">'._get_node_title($nid).'</td>';
+			$html .= "</tr>";
+		}
+		
+		$html .= "</tbody></table>";
+		$html .= "<br/><br/><br/>";	
+	
+	}
+	
+	$html .= l("Go Back", "form_add_node_to_channel");
+	$html .= "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;";
+	$html .= l("Home", "");
+	$html .= "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;";
+	$html .= l("Convert to XML", "xmlexport_form_chid_xml");
+	
+	
+
+	
+	return $html;	
+	
+}
+
+
+
+/*
+ * queries and gets the node title from the node table.
+ */
+
+function _get_node_title($nodeid)
+{
+		$query = "SELECT title FROM {node} WHERE nid = %d;";
+		$queryresult = db_query($query, $nodeid);
+		$record = db_fetch_object($queryresult);
+		
+		return $record->title;
+}
+
+
+
+/*
+ * Checks if a given HomeIndex node already is linked to the given channelid or not
+ */
+function _node_exists_on_channel($nodeid, $chid)
+{
+	$query = "SELECT COUNT(*) as cnt FROM {tblchannelmap} WHERE channelid = %d AND nodeid = %d";
+	$queryresult = db_query($query, $chid, $nodeid);
+	$record = db_fetch_object($queryresult);
+	
+	if($record->cnt > 0)
+	{
+		return true;
+	}
+	else
+	{
+		return false;
+	}
+}
+
+/*
+ * Checks if a certain channelID already exists on the tblchannelmap
+ */
+function _channelid_exists($chid)
+{	
+	$query = "SELECT COUNT(*) as cnt FROM {tblchannelmap} WHERE channelid = %d";
+	$queryresult = db_query($query, $chid);
+	$record = db_fetch_object($queryresult);
+	
+	if($record->cnt > 0)
+	{
+		return true;
+	}
+	else
+	{
+		return false;
+	}
+}
+
+
+/*
+ *  Will remove a channelId and all linked nodes from the tblchannelmap.
+ */
+function _flush_channelmap_by_chid($chid)
+{
+	$query = "DELETE FROM {tblchannelmap} WHERE channelid = %d";
+	$queryresult = db_query($query, $chid);
+	//$record = db_fetch_object($queryresult);	
+	
+	$num_rows_affected =  db_affected_rows();
+	
+	return $num_rows_affected;	
+}
+
+
+/*
+ * Returns nids, labels of all available channels in the system  
+ */
+
+function _get_channel_list()
+{
+	$query = "SELECT nid, field_channel_label_value FROM content_type_channel";
+	$queryresult = db_query($query);
+	
+	$channel_list = array();	
+	$i = 0;
+	
+	while($record = db_fetch_object($queryresult))
+	{
+		//$channel_list[$i]["nid"] = $record->nid;
+		//$channel_list[$i]["label"] =  $record->field_channel_label_value;	
+		
+		$channel_list[$record->nid]=$record->field_channel_label_value;
+		
+		
+		//$i++;
+	}
+	
+	return $channel_list;
+}
+
+
+
+
+

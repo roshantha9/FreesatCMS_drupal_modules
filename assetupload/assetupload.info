@@ -1,0 +1,4 @@
+; $Id$
+name = Asset Upload
+description = This modules is used to upload the files/assets to the MHEG service or broadcast server.
+core = 6.x
